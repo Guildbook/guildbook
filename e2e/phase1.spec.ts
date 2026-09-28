@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { chooseOption, randomCharacterName, signIn } from "./helpers";
+import { chooseOption, headerMenu, openMenu, randomCharacterName, signIn } from "./helpers";
 
 test.describe("public pages", () => {
   test("home shows the guild, motto, schedule and recruitment", async ({ page, isMobile }) => {
@@ -9,7 +9,7 @@ test.describe("public pages", () => {
     await expect(page.getByRole("heading", { name: "Raid Schedule" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Recruitment" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Apply to the Order" })).toBeVisible();
-    if (isMobile) await page.getByRole("banner").getByText("Menu", { exact: true }).click();
+    if (isMobile) await openMenu(headerMenu(page, "Menu"));
     await expect(page.getByRole("banner").getByRole("link", { name: "Apply", exact: true }).filter({ visible: true })).toBeVisible();
     if (isMobile) await page.keyboard.press("Escape");
 
@@ -31,19 +31,17 @@ test.describe("public pages", () => {
   test("mobile menu closes on outside click, Escape and navigation", async ({ page, isMobile }) => {
     test.skip(!isMobile, "The menu only renders below the xl breakpoint");
     await page.goto("/");
-    const menu = page.locator('details:has(> summary[aria-label="Menu"])');
-    const toggle = page.getByRole("banner").getByText("Menu", { exact: true });
+    const menu = headerMenu(page, "Menu");
 
-    await toggle.click();
-    await expect(menu).toHaveAttribute("open");
+    await openMenu(menu);
     await page.getByRole("main").click({ position: { x: 5, y: 5 } });
     await expect(menu).not.toHaveAttribute("open");
 
-    await toggle.click();
+    await openMenu(menu);
     await page.keyboard.press("Escape");
     await expect(menu).not.toHaveAttribute("open");
 
-    await toggle.click();
+    await openMenu(menu);
     await menu.getByRole("link", { name: "Roster" }).click();
     await expect(page).toHaveURL(/\/roster$/);
     await expect(menu).not.toHaveAttribute("open");
@@ -75,8 +73,8 @@ test.describe("public pages", () => {
 
 /** Opens the header menu that holds the account card: the Menu on mobile, the Account dropdown on desktop. */
 async function openAccountCard(page: Page, isMobile: boolean) {
-  const menu = page.getByRole("banner").locator(`details:has(> summary[aria-label="${isMobile ? "Menu" : "Account"}"])`);
-  await menu.locator("summary").click();
+  const menu = headerMenu(page, isMobile ? "Menu" : "Account");
+  await openMenu(menu);
   return menu.getByTestId("account-card");
 }
 

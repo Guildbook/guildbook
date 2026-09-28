@@ -1,13 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { headerMenu, openMenu, signIn } from "./helpers";
 
 /** The header nav that is visible at this viewport: the Menu dropdown on mobile, the Main nav on desktop. */
 async function headerNav(page: Page, isMobile: boolean) {
-  const banner = page.getByRole("banner");
-  if (!isMobile) return banner.getByRole("navigation", { name: "Main" });
-  const menu = banner.locator('details:has(> summary[aria-label="Menu"])');
-  await menu.locator("summary").click();
-  await expect(menu).toHaveAttribute("open");
+  if (!isMobile) return page.getByRole("banner").getByRole("navigation", { name: "Main" });
+  const menu = headerMenu(page, "Menu");
+  await openMenu(menu);
   return menu;
 }
 

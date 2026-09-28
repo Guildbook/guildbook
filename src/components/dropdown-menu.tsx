@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 
-/** Disclosure menu that closes on outside click, Escape, or navigation. */
+/** Disclosure menu that closes on outside click, Escape, or navigation. Gains `data-ready` once those handlers are live. */
 export function DropdownMenu({
   label,
   description,
@@ -23,8 +23,12 @@ export function DropdownMenu({
   const ref = useRef<HTMLDetailsElement>(null);
   const descriptionId = useId();
   const pathname = usePathname();
+  const lastPathname = useRef(pathname);
 
   useEffect(() => {
+    // Only on navigation: a menu opened natively before hydration must stay open when this first runs.
+    if (lastPathname.current === pathname) return;
+    lastPathname.current = pathname;
     if (ref.current) ref.current.open = false;
   }, [pathname]);
 
@@ -43,6 +47,7 @@ export function DropdownMenu({
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    ref.current?.setAttribute("data-ready", "");
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);

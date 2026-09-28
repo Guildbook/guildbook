@@ -18,6 +18,18 @@ export function randomCharacterName(): string {
   return `E${s}`;
 }
 
+/** A header `DropdownMenu` by its label. */
+export function headerMenu(page: Page, label: string): Locator {
+  return page.getByRole("banner").locator(`details:has(> summary[aria-label="${label}"])`);
+}
+
+/** Opens a `DropdownMenu` once hydrated, so its outside-click and Escape handlers are live for the next step. */
+export async function openMenu(menu: Locator) {
+  await expect(menu).toHaveAttribute("data-ready");
+  await menu.locator(":scope > summary").click();
+  await expect(menu).toHaveAttribute("open");
+}
+
 export async function expectOnPage(page: Page, text: string | RegExp) {
   await expect(page.getByText(text).first()).toBeVisible();
 }
