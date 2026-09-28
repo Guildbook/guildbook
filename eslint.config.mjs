@@ -29,8 +29,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // WoW addons (Lua) ship as-is from here.
-    "addons/**",
     // Playwright output and scratch configs.
     "test-results/**",
     "playwright-report/**",
