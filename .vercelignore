@@ -1,0 +1,22 @@
+# The Electron companion is built and shipped separately; the site deploy never needs it.
+companion/
+# Local env files and CLI links hold credentials; Vercel's own environment variables are used instead.
+.env*
+!.env.example
+.neon
+*.pem
+*.key
+*.p12
+# Real player combat logs (see .gitignore)
+tests/fixtures/combatlog/
+WoWCombatLog*.txt
+# Agent skills and local output
+.agents/
+skills-lock.json
+.brand-preview/
+.tmp-*
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
+blob-report/

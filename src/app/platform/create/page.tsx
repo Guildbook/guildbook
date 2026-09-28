@@ -1,0 +1,28 @@
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { PageHeader, Panel } from "@/components/ui";
+import { getSessionUser } from "@/server/context";
+import { getRequestHost, guildOrigin } from "@/server/hosts";
+import { CreateGuildForm } from "./create-guild-form";
+
+export const metadata: Metadata = { title: "Create your guild" };
+
+const SLUG_TOKEN = "slug-token";
+
+export default async function CreateGuildPage() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login?callbackUrl=%2Fcreate");
+  const current = await getRequestHost();
+  const [hostPrefix, hostSuffix] = guildOrigin(SLUG_TOKEN, current).replace(/^https?:\/\//, "").split(SLUG_TOKEN) as [string, string];
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <PageHeader title="Create your guild" eyebrow="Guildbook">
+        Your guild gets its own site and subdomain. You become its Guild Master and can change everything later.
+      </PageHeader>
+      <Panel>
+        <CreateGuildForm hostPrefix={hostPrefix} hostSuffix={hostSuffix} />
+      </Panel>
+    </div>
+  );
+}

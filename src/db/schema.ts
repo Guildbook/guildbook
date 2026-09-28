@@ -1,0 +1,837 @@
+import { sql } from "drizzle-orm";
+import {
+  type AnyPgColumn,
+  boolean,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  smallint,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+import type { AdapterAccountType } from "next-auth/adapters";
+import { CLASSES, FACTIONS, PROFESSIONS, ROLES } from "@/lib/game";
+import { RANK_TIERS } from "@/lib/authz/tiers";
+import { THEME_BASES, type ThemeOverrides } from "@/lib/tabard/theme";
+import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/constants";
+import type { ParsedAward } from "@/lib/loot/types";
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+export const rankTierEnum = pgEnum("rank_tier", RANK_TIERS);
+export const wowClassEnum = pgEnum("wow_class", CLASSES);
+export const raidRoleEnum = pgEnum("raid_role", ROLES);
+export const factionEnum = pgEnum("faction", FACTIONS);
+export const professionEnum = pgEnum("profession", PROFESSIONS);
+export const membershipStatusEnum = pgEnum("membership_status", ["applicant", "active", "former"]);
+export const applicationStatusEnum = pgEnum("application_status", [
+  "pending",
+  "accepted",
+  "trial",
+  "declined",
+  "withdrawn",
+]);
+export const recruitmentPriorityEnum = pgEnum("recruitment_priority", ["closed", "low", "medium", "high"]);
+/** "order": the Order of Saint Michael's Catholic ranks, pages and imagery. "standard": neutral defaults for new guilds. */
+export const guildPresetEnum = pgEnum("guild_preset", ["order", "standard"]);
+/** `order` is the Order of Saint Michael's locked theme; a check constraint keeps it off every other guild. */
+export const guildThemeBaseEnum = pgEnum("guild_theme_base", THEME_BASES);
+export const domainStatusEnum = pgEnum("domain_status", ["pending", "verified", "failed"]);
+export const addonStatusEnum = pgEnum("addon_status", ["planned", "in_development", "beta", "released"]);
+
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
+
+// ---------------------------------------------------------------------------
+// Global (not guild-scoped): users and Auth.js tables
+// ---------------------------------------------------------------------------
+
+export const users = pgTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name"),
+  email: text("email").unique(),
+  emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
+  image: text("image"),
+  discordId: text("discord_id").unique(),
+  discordUsername: text("discord_username"),
+  createdAt: createdAt(),
+});
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").$type<AdapterAccountType>().notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    refresh_token: text("refresh_token"),
+    access_token: text("access_token"),
+    expires_at: integer("expires_at"),
+    token_type: text("token_type"),
+    scope: text("scope"),
+    id_token: text("id_token"),
+    session_state: text("session_state"),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] })],
+);
+
+export const sessions = pgTable("sessions", {
+  sessionToken: text("session_token").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expires: timestamp("expires", { mode: "date", withTimezone: true }).notNull(),
+});
+
+export const verificationTokens = pgTable(
+  "verification_tokens",
+  {
+    identifier: text("identifier").notNull(),
+    token: text("token").notNull(),
+    expires: timestamp("expires", { mode: "date", withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.identifier, t.token] })],
+);
+
+/**
+ * A Battle.net account linked to a (Discord) user as a second step; it is never a login method.
+ * Blizzard issues no refresh token, so the character list is snapshotted at link time and the
+ * access token (encrypted at rest) is only useful until it expires, about 24 hours later.
+ */
+export const battlenetLinks = pgTable("battlenet_links", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  battlenetId: text("battlenet_id").notNull().unique(),
+  battletag: text("battletag").notNull(),
+  region: text("region").notNull(),
+  accessTokenEnc: text("access_token_enc"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  /** Unfiltered: each guild filters by faction and realm on read. */
+  characters: jsonb("characters").$type<BattlenetCharacterSnapshot[]>().notNull().default([]),
+  /** "ok" | "empty" | "forbidden" | "error": why the snapshot may be empty. */
+  snapshotStatus: text("snapshot_status").notNull().default("ok"),
+  snapshotAt: timestamp("snapshot_at", { withTimezone: true }).notNull().defaultNow(),
+  linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export interface BattlenetCharacterSnapshot {
+  id: string;
+  name: string;
+  surname: string | null;
+  realmSlug: string;
+  realmName: string;
+  level: number;
+  wowClass: (typeof CLASSES)[number];
+  race: string;
+  faction: (typeof FACTIONS)[number];
+  guildName: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Guild-scoped tables. Every child references its parent through (guild_id, id)
+// so a row can never point at another guild's data.
+// ---------------------------------------------------------------------------
+
+export const guilds = pgTable("guilds", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  motto: text("motto"),
+  description: text("description").notNull().default(""),
+  realm: text("realm"),
+  timezone: text("timezone").notNull().default("America/New_York"),
+  /** Null means the guild spans both factions. */
+  faction: factionEnum("faction"),
+  recruitmentOpen: boolean("recruitment_open").notNull().default(true),
+  applicantRankId: uuid("applicant_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
+  acceptRankId: uuid("accept_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
+  trialRankId: uuid("trial_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
+  discordGuildId: text("discord_guild_id"),
+  discordInviteUrl: text("discord_invite_url"),
+  preset: guildPresetEnum("preset").notNull().default("standard"),
+  /** Opt-in listing in the public Guildbook directory. */
+  directoryListed: boolean("directory_listed").notNull().default(false),
+  /** Loot history is members-only unless the guild opts in to showing it to everyone. */
+  lootPublic: boolean("loot_public").notNull().default(false),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  /** The in-game tabard (palette indexes from lib/tabard/palette.ts, emblem ids from lib/tabard/emblems.tsx). */
+  tabardBackground: smallint("tabard_background").notNull().default(32),
+  tabardBorder: smallint("tabard_border").notNull().default(3),
+  tabardBorderStyle: text("tabard_border_style").notNull().default("plain"),
+  tabardEmblem: text("tabard_emblem").notNull().default("star"),
+  tabardEmblemColor: smallint("tabard_emblem_color").notNull().default(3),
+  themeBase: guildThemeBaseEnum("theme_base").notNull().default("tome"),
+  /** Site-only colour overrides (hex) for the primary, trim and highlight roles; the crest ignores them. */
+  themeOverrides: jsonb("theme_overrides").$type<ThemeOverrides>().notNull().default({}),
+  createdAt: createdAt(),
+}, (t) => [
+  index("guilds_created_by_idx").on(t.createdByUserId, t.createdAt),
+  check("guilds_theme_order_only", sql`${t.themeBase} <> 'order' or ${t.preset} = 'order'`),
+  check("guilds_tabard_background_range", sql`${t.tabardBackground} between 0 and 50`),
+  check("guilds_tabard_border_range", sql`${t.tabardBorder} between 0 and 16`),
+  check("guilds_tabard_emblem_color_range", sql`${t.tabardEmblemColor} between 0 and 16`),
+]);
+
+/**
+ * A custom domain a guild serves on, e.g. orderofsaintmichael.org. Ownership is proven with a TXT record holding
+ * `verification_token`; only verified domains route to the guild.
+ */
+export const guildDomains = pgTable(
+  "guild_domains",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    domain: text("domain").notNull().unique(),
+    status: domainStatusEnum("status").notNull().default("pending"),
+    verificationToken: text("verification_token").notNull(),
+    lastError: text("last_error"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("guild_domains_guild_id_id_key").on(t.guildId, t.id),
+    index("guild_domains_guild_idx").on(t.guildId),
+    check("guild_domains_domain_lowercase", sql`${t.domain} = lower(${t.domain})`),
+  ],
+);
+
+export const ranks = pgTable(
+  "ranks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    description: text("description").notNull().default(""),
+    tier: rankTierEnum("tier").notNull(),
+    /** Key from INSIGNIA in lib/insignia; null falls back to the tier's default emblem. */
+    insignia: text("insignia"),
+    inGame: boolean("in_game").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("ranks_guild_id_id_key").on(t.guildId, t.id),
+    unique("ranks_guild_name_key").on(t.guildId, t.name),
+    unique("ranks_guild_sort_key").on(t.guildId, t.sortOrder),
+  ],
+);
+
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rankId: uuid("rank_id").notNull(),
+    status: membershipStatusEnum("status").notNull(),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("memberships_guild_id_id_key").on(t.guildId, t.id),
+    unique("memberships_guild_user_key").on(t.guildId, t.userId),
+    foreignKey({
+      name: "memberships_rank_fk",
+      columns: [t.guildId, t.rankId],
+      foreignColumns: [ranks.guildId, ranks.id],
+    }).onDelete("restrict"),
+  ],
+);
+
+export const characters = pgTable(
+  "characters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").notNull(),
+    name: text("name").notNull(),
+    surname: text("surname").notNull(),
+    faction: factionEnum("faction").notNull(),
+    wowClass: wowClassEnum("class").notNull(),
+    spec: text("spec").notNull(),
+    role: raidRoleEnum("role").notNull(),
+    level: integer("level").notNull(),
+    isMain: boolean("is_main").notNull().default(false),
+    externalRef: text("external_ref"),
+    /** Name, class and level came from the owner's linked Battle.net account. */
+    verified: boolean("verified").notNull().default(false),
+    bnetCharacterId: text("bnet_character_id"),
+    realmSlug: text("realm_slug"),
+    realmName: text("realm_name"),
+    /** Last successful Battle.net sync (lastSyncedAt). */
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("characters_guild_id_id_key").on(t.guildId, t.id),
+    uniqueIndex("characters_unique_bnet_character")
+      .on(t.guildId, t.bnetCharacterId)
+      .where(sql`${t.bnetCharacterId} is not null and ${t.archivedAt} is null`),
+    foreignKey({
+      name: "characters_membership_fk",
+      columns: [t.guildId, t.membershipId],
+      foreignColumns: [memberships.guildId, memberships.id],
+    }).onDelete("cascade"),
+    uniqueIndex("characters_one_main_per_member")
+      .on(t.membershipId)
+      .where(sql`${t.isMain} and ${t.archivedAt} is null`),
+    // WoW: Forever names are unique on the full first + last name across the region, regardless of faction.
+    uniqueIndex("characters_unique_full_name")
+      .on(t.guildId, sql`lower(${t.name})`, sql`lower(${t.surname})`)
+      .where(sql`${t.archivedAt} is null`),
+    check("characters_level_range", sql`${t.level} between 1 and 100`),
+  ],
+);
+
+export const characterProfessions = pgTable(
+  "character_professions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    characterId: uuid("character_id").notNull(),
+    profession: professionEnum("profession").notNull(),
+    skill: integer("skill"),
+  },
+  (t) => [
+    foreignKey({
+      name: "character_professions_character_fk",
+      columns: [t.guildId, t.characterId],
+      foreignColumns: [characters.guildId, characters.id],
+    }).onDelete("cascade"),
+    unique("character_professions_unique").on(t.characterId, t.profession),
+  ],
+);
+
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    characterName: text("character_name").notNull(),
+    characterSurname: text("character_surname").notNull(),
+    faction: factionEnum("faction").notNull(),
+    wowClass: wowClassEnum("class").notNull(),
+    spec: text("spec").notNull(),
+    role: raidRoleEnum("role").notNull(),
+    level: integer("level").notNull(),
+    raidExperience: text("raid_experience").notNull(),
+    availability: text("availability").notNull(),
+    whyThisGuild: text("why_this_guild").notNull(),
+    discordHandle: text("discord_handle").notNull(),
+    respectsFaith: boolean("respects_faith").notNull(),
+    /** Verified against the applicant's Battle.net character snapshot at submission. */
+    verified: boolean("verified").notNull().default(false),
+    bnetCharacterId: text("bnet_character_id"),
+    realmSlug: text("realm_slug"),
+    realmName: text("realm_name"),
+    battletag: text("battletag"),
+    bnetSnapshotAt: timestamp("bnet_snapshot_at", { withTimezone: true }),
+    status: applicationStatusEnum("status").notNull().default("pending"),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("applications_guild_id_id_key").on(t.guildId, t.id),
+    uniqueIndex("applications_one_pending_per_user")
+      .on(t.guildId, t.userId)
+      .where(sql`${t.status} = 'pending'`),
+    index("applications_guild_status_idx").on(t.guildId, t.status),
+  ],
+);
+
+export const contentPages = pgTable(
+  "content_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    bodyMd: text("body_md").notNull().default(""),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedByUserId: text("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("content_pages_guild_id_id_key").on(t.guildId, t.id),
+    unique("content_pages_guild_slug_key").on(t.guildId, t.slug),
+  ],
+);
+
+export const contentRevisions = pgTable(
+  "content_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id").notNull(),
+    title: text("title").notNull(),
+    bodyMd: text("body_md").notNull(),
+    editedByUserId: text("edited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "content_revisions_page_fk",
+      columns: [t.guildId, t.pageId],
+      foreignColumns: [contentPages.guildId, contentPages.id],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const raidScheduleSlots = pgTable(
+  "raid_schedule_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    label: text("label").notNull(),
+    faction: factionEnum("faction"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [check("raid_schedule_slots_day_range", sql`${t.dayOfWeek} between 0 and 6`)],
+);
+
+export const recruitmentNeeds = pgTable(
+  "recruitment_needs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    wowClass: wowClassEnum("class").notNull(),
+    role: raidRoleEnum("role").notNull(),
+    faction: factionEnum("faction"),
+    priority: recruitmentPriorityEnum("priority").notNull().default("closed"),
+    note: text("note").notNull().default(""),
+  },
+  (t) => [unique("recruitment_needs_unique").on(t.guildId, t.wowClass, t.role, t.faction).nullsNotDistinct()],
+);
+
+export const instances = pgTable(
+  "instances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    shortName: text("short_name").notNull(),
+    size: integer("size").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    unique("instances_guild_id_id_key").on(t.guildId, t.id),
+    unique("instances_guild_name_key").on(t.guildId, t.name),
+  ],
+);
+
+export const bosses = pgTable(
+  "bosses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    instanceId: uuid("instance_id").notNull(),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    unique("bosses_guild_id_id_key").on(t.guildId, t.id),
+    foreignKey({
+      name: "bosses_instance_fk",
+      columns: [t.guildId, t.instanceId],
+      foreignColumns: [instances.guildId, instances.id],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const bossKills = pgTable(
+  "boss_kills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    bossId: uuid("boss_id").notNull(),
+    faction: factionEnum("faction").notNull(),
+    killedAt: timestamp("killed_at", { withTimezone: true }).notNull(),
+    wclReportCode: text("wcl_report_code"),
+    note: text("note").notNull().default(""),
+    recordedByUserId: text("recorded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "boss_kills_boss_fk",
+      columns: [t.guildId, t.bossId],
+      foreignColumns: [bosses.guildId, bosses.id],
+    }).onDelete("cascade"),
+    index("boss_kills_boss_idx").on(t.bossId, t.faction, t.killedAt),
+  ],
+);
+
+export const addons = pgTable(
+  "addons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    summary: text("summary").notNull(),
+    descriptionMd: text("description_md").notNull().default(""),
+    status: addonStatusEnum("status").notNull().default("planned"),
+    version: text("version"),
+    downloadUrl: text("download_url"),
+    sourceUrl: text("source_url"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("addons_guild_slug_key").on(t.guildId, t.slug)],
+);
+
+export const vigilVisibilityEnum = pgEnum("vigil_visibility", ["private", "officers", "guild"]);
+
+/** One analysed fight from a member's combat log. Only the per-fight summary is stored, never the log. */
+export const vigilReports = pgTable(
+  "vigil_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").notNull(),
+    characterId: uuid("character_id"),
+    visibility: vigilVisibilityEnum("visibility").notNull().default("private"),
+    fightLabel: text("fight_label").notNull(),
+    fightKind: text("fight_kind").notNull(),
+    encounterName: text("encounter_name"),
+    playerName: text("player_name").notNull(),
+    fightStartedAt: timestamp("fight_started_at", { withTimezone: true }).notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    modelId: text("model_id"),
+    score: integer("score").notNull(),
+    summary: jsonb("summary").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("vigil_reports_guild_id_id_key").on(t.guildId, t.id),
+    foreignKey({
+      name: "vigil_reports_membership_fk",
+      columns: [t.guildId, t.membershipId],
+      foreignColumns: [memberships.guildId, memberships.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "vigil_reports_character_fk",
+      columns: [t.guildId, t.characterId],
+      foreignColumns: [characters.guildId, characters.id],
+    }).onDelete("cascade"),
+    index("vigil_reports_owner_idx").on(t.guildId, t.membershipId, t.fightStartedAt),
+    index("vigil_reports_shared_idx").on(t.guildId, t.visibility, t.createdAt),
+    check("vigil_reports_score_range", sql`${t.score} between 0 and 100`),
+    check("vigil_reports_fight_kind", sql`${t.fightKind} in ('boss', 'trash')`),
+  ],
+);
+
+/** A member's default visibility for new reports. */
+export const vigilPreferences = pgTable(
+  "vigil_preferences",
+  {
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").primaryKey(),
+    defaultVisibility: vigilVisibilityEnum("default_visibility").notNull().default("private"),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "vigil_preferences_membership_fk",
+      columns: [t.guildId, t.membershipId],
+      foreignColumns: [memberships.guildId, memberships.id],
+    }).onDelete("cascade"),
+  ],
+);
+
+/** A short-lived code a member shows on the site and enters in the Vigil companion. Only its hash is stored. */
+export const vigilCompanionPairings = pgTable(
+  "vigil_companion_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "vigil_companion_pairings_membership_fk",
+      columns: [t.guildId, t.membershipId],
+      foreignColumns: [memberships.guildId, memberships.id],
+    }).onDelete("cascade"),
+    index("vigil_companion_pairings_owner_idx").on(t.guildId, t.membershipId),
+  ],
+);
+
+/**
+ * A paired Vigil companion install, scoped to one membership. The device token is stored as a SHA-256 hash;
+ * revoking sets `revoked_at`. The rate window counts uploads per minute across server instances.
+ */
+export const vigilCompanionDevices = pgTable(
+  "vigil_companion_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenHint: text("token_hint").notNull(),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    rateWindowStart: timestamp("rate_window_start", { withTimezone: true }).notNull().defaultNow(),
+    rateWindowCount: integer("rate_window_count").notNull().default(0),
+  },
+  (t) => [
+    foreignKey({
+      name: "vigil_companion_devices_membership_fk",
+      columns: [t.guildId, t.membershipId],
+      foreignColumns: [memberships.guildId, memberships.id],
+    }).onDelete("cascade"),
+    index("vigil_companion_devices_owner_idx").on(t.guildId, t.membershipId),
+  ],
+);
+
+/** Append-only; UPDATE and DELETE are rejected by a trigger (see drizzle migrations). */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id"),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("audit_log_guild_created_idx").on(t.guildId, t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
+// Loot ledger
+// ---------------------------------------------------------------------------
+
+export const lootEntryKindEnum = pgEnum("loot_entry_kind", ["award", "reversal"]);
+export const lootResponseEnum = pgEnum("loot_response", LOOT_RESPONSES);
+export const lootSourceEnum = pgEnum("loot_source", LOOT_SOURCES);
+export const lootImportStatusEnum = pgEnum("loot_import_status", ["draft", "committed", "discarded"]);
+export const itemDataSourceEnum = pgEnum("item_data_source", ITEM_DATA_SOURCES);
+
+/**
+ * Item names, quality and icons shared by every guild (not guild-scoped, like `users`). Imports and the addon are the
+ * preferred sources. Blizzard Game Data API fields only fill gaps, and the daily cron refreshes them or drops them
+ * within 30 days, as Blizzard's API terms require (`details_source = 'blizzard'`, `name_source = 'blizzard'`).
+ */
+export const wowItems = pgTable(
+  "wow_items",
+  {
+    itemId: integer("item_id").primaryKey(),
+    name: text("name").notNull(),
+    nameSource: itemDataSourceEnum("name_source").notNull(),
+    quality: smallint("quality"),
+    /** Icon file name, e.g. `inv_sword_39`. Icons are hotlinked from Blizzard's render CDN, never stored. */
+    icon: text("icon"),
+    itemLevel: smallint("item_level"),
+    /** Source of quality, icon and item level; null when none is known. */
+    detailsSource: itemDataSourceEnum("details_source"),
+    /** When Blizzard data in this row was last fetched successfully. */
+    blizzardFetchedAt: timestamp("blizzard_fetched_at", { withTimezone: true }),
+    /** Last Blizzard lookup, successful or not, so missing items aren't retried on every run. */
+    blizzardCheckedAt: timestamp("blizzard_checked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("wow_items_name_idx").on(sql`lower(${t.name})`),
+    index("wow_items_blizzard_idx").on(t.blizzardFetchedAt),
+    check("wow_items_quality_range", sql`${t.quality} between 0 and 7`),
+    check("wow_items_item_id_positive", sql`${t.itemId} > 0`),
+  ],
+);
+
+/** A pasted Gargul or RCLootCouncil export, parsed and waiting for an officer to review and commit it. */
+export const lootImportBatches = pgTable(
+  "loot_import_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    parserId: text("parser_id").notNull(),
+    source: lootSourceEnum("source").notNull(),
+    status: lootImportStatusEnum("status").notNull().default("draft"),
+    /** SHA-256 of the pasted text; the text itself isn't kept. */
+    rawSha256: text("raw_sha256").notNull(),
+    /** Parsed rows (with ISO dates), cleared once the batch is committed or discarded. */
+    rows: jsonb("rows").$type<StoredParsedAward[]>().notNull().default([]),
+    warnings: jsonb("warnings").$type<{ line: number; message: string }[]>().notNull().default([]),
+    rowCount: integer("row_count").notNull(),
+    committedCount: integer("committed_count"),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    committedAt: timestamp("committed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("loot_import_batches_guild_id_id_key").on(t.guildId, t.id),
+    index("loot_import_batches_guild_idx").on(t.guildId, t.createdAt),
+  ],
+);
+
+export type StoredParsedAward = Omit<ParsedAward, "awardedAt"> & { awardedAt: string };
+
+/**
+ * The loot ledger. Append-only: a mistake is corrected with a reversal row, never an edit. The guard trigger
+ * (drizzle/0013_loot_ledger_guard.sql) only lets reference columns become NULL when what they point at is deleted,
+ * lets identity be replaced with "Deleted user" during account deletion, and lets a guild purge delete rows.
+ *
+ * The foreign keys to characters, instances, bosses, import batches and the reversed entry are declared in that
+ * migration, not here: they're composite `(guild_id, x)` keys with `ON DELETE SET NULL (x)`, which Drizzle can't express.
+ * Reversal rows copy the item, recipient and raid fields of the award they reverse.
+ */
+export const lootEntries = pgTable(
+  "loot_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    kind: lootEntryKindEnum("kind").notNull(),
+    reversesEntryId: uuid("reverses_entry_id"),
+    itemId: integer("item_id").notNull(),
+    itemName: text("item_name").notNull(),
+    characterId: uuid("character_id"),
+    /** The recipient's name at the time (a guild character's full name, or a pug's name); null for disenchant or bank. */
+    recipientName: text("recipient_name"),
+    response: lootResponseEnum("response").notNull(),
+    /** The tool's own wording, e.g. RCLootCouncil's "Upgrade" or Gargul's roll type. */
+    responseText: text("response_text"),
+    votes: smallint("votes"),
+    instanceId: uuid("instance_id"),
+    instanceName: text("instance_name"),
+    bossId: uuid("boss_id"),
+    bossName: text("boss_name"),
+    awardedAt: timestamp("awarded_at", { withTimezone: true }).notNull(),
+    /** The raid night in the guild's time zone; groups the raid view. */
+    raidDate: text("raid_date").notNull(),
+    source: lootSourceEnum("source").notNull(),
+    externalId: text("external_id"),
+    importBatchId: uuid("import_batch_id"),
+    note: text("note"),
+    recordedByUserId: text("recorded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("loot_entries_guild_id_id_key").on(t.guildId, t.id),
+    uniqueIndex("loot_entries_one_reversal")
+      .on(t.reversesEntryId)
+      .where(sql`${t.kind} = 'reversal'`),
+    uniqueIndex("loot_entries_external_award")
+      .on(t.guildId, t.source, t.externalId)
+      .where(sql`${t.kind} = 'award' and ${t.externalId} is not null`),
+    index("loot_entries_guild_awarded_idx").on(t.guildId, t.awardedAt),
+    index("loot_entries_character_idx").on(t.guildId, t.characterId),
+    index("loot_entries_raid_idx").on(t.guildId, t.raidDate),
+    check("loot_entries_reversal_target", sql`(${t.kind} = 'reversal') = (${t.reversesEntryId} is not null)`),
+    check("loot_entries_item_id_positive", sql`${t.itemId} > 0`),
+    check("loot_entries_raid_date_format", sql`${t.raidDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
+  ],
+);
+
+/** How an import name (e.g. "Cassian-Forever") maps to a guild character, remembered from earlier imports. */
+export const lootNameAliases = pgTable(
+  "loot_name_aliases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    /** Normalised: lower case, single spaces. */
+    alias: text("alias").notNull(),
+    characterId: uuid("character_id").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("loot_name_aliases_guild_alias_key").on(t.guildId, t.alias),
+    foreignKey({
+      name: "loot_name_aliases_character_fk",
+      columns: [t.guildId, t.characterId],
+      foreignColumns: [characters.guildId, characters.id],
+    }).onDelete("cascade"),
+  ],
+);

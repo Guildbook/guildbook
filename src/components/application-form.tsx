@@ -1,0 +1,183 @@
+"use client";
+
+import clsx from "clsx";
+import { useEffect, useRef, useState } from "react";
+import { ActionForm, Field, FieldError, FormMessage, SubmitButton, useActionResult } from "@/components/action-form";
+import { ClassSpecFields } from "@/components/class-spec-fields";
+import type { BattlenetCharacterSnapshot } from "@/db/schema";
+import { CLASS_INFO, MAX_LEVEL } from "@/lib/game";
+import { scrollIntoViewGently, scrollToTop } from "@/lib/scroll";
+import type { ActionResult } from "@/server/action-types";
+
+/** Server-side rejections scroll to the first error; the browser already does this for native `required` checks. */
+function ScrollToFirstError() {
+  const result = useActionResult();
+  const anchor = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!result || result.ok) return;
+    const form = anchor.current?.closest("form");
+    const target = form?.querySelector("[data-field-error]")?.parentElement ?? form?.querySelector('[role="alert"]');
+    if (target) scrollIntoViewGently(target);
+    else scrollToTop();
+  }, [result]);
+
+  return <span ref={anchor} hidden />;
+}
+
+/**
+ * With Battle.net characters the applicant picks one; name, level and class are then shown read-only
+ * (the server takes them from the snapshot) while surname, spec and role stay editable. Manual entry remains
+ * available and is marked Unverified for officers.
+ */
+export function ApplicationForm({
+  action,
+  characters,
+  showFaction,
+  defaultDiscord,
+  guildName,
+  faithPledge,
+}: {
+  action: (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
+  characters: BattlenetCharacterSnapshot[];
+  showFaction: boolean;
+  defaultDiscord: string;
+  guildName: string;
+  /** The Order asks applicants to respect its Catholic faith; other guilds only ask them to keep the charter. */
+  faithPledge: boolean;
+}) {
+  const [manual, setManual] = useState(characters.length === 0);
+  const [selectedId, setSelectedId] = useState(characters[0]?.id ?? "");
+  const selected = manual ? undefined : characters.find((c) => c.id === selectedId);
+
+  // On success the page re-renders with the Pending card at the top and this form unmounts, so scroll from here.
+  const submit = async (prev: ActionResult | null, fd: FormData) => {
+    const result = await action(prev, fd);
+    if (result.ok) scrollToTop();
+    return result;
+  };
+
+  return (
+    <ActionForm action={submit} className="space-y-5">
+      <ScrollToFirstError />
+      {selected ? (
+        <>
+          <fieldset>
+            <legend className="field-label">Choose your character</legend>
+            <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
+              {characters.map((c) => (
+                <label
+                  key={c.id}
+                  className={clsx(
+                    "flex cursor-pointer items-start gap-3 rounded border px-3 py-2 transition-colors",
+                    c.id === selectedId ? "border-gold bg-ink-3" : "border-line hover:border-gold-dim",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="bnetCharacterId"
+                    value={c.id}
+                    checked={c.id === selectedId}
+                    onChange={() => setSelectedId(c.id)}
+                    className="mt-1 h-4 w-4 accent-crimson"
+                  />
+                  <span className="min-w-0 leading-tight">
+                    <span className="block font-semibold" style={{ color: CLASS_INFO[c.wowClass].color }}>
+                      {c.name}
+                    </span>
+                    <span className="block text-xs text-muted">
+                      Level {c.level} {c.race} {CLASS_INFO[c.wowClass].label}
+                    </span>
+                    {c.guildName && <span className="block truncate text-xs text-gold-dim">&lt;{c.guildName}&gt;</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <FieldError name="bnetCharacterId" />
+          </fieldset>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="First name" name="characterName">
+              <input id="characterName" className="field cursor-default opacity-90" value={selected.name} readOnly />
+            </Field>
+            <Field
+              label="Surname"
+              name="characterSurname"
+              hint={selected.surname ? undefined : "Battle.net doesn't provide surnames yet, so enter yours."}
+            >
+              <input
+                key={selected.id}
+                id="characterSurname"
+                name="characterSurname"
+                className="field"
+                required
+                maxLength={12}
+                autoComplete="off"
+                defaultValue={selected.surname ?? ""}
+                readOnly={Boolean(selected.surname)}
+              />
+            </Field>
+            <Field label="Level" name="level">
+              <input id="level" className="field cursor-default opacity-90" value={selected.level} readOnly />
+            </Field>
+          </div>
+          <ClassSpecFields key={selected.id} lockedClass={selected.wowClass} showFaction={false} />
+          <p className="text-xs text-muted">
+            Name, level and class come from Battle.net.{" "}
+            <button type="button" className="link" onClick={() => setManual(true)}>
+              My character isn&apos;t listed
+            </button>
+          </p>
+        </>
+      ) : (
+        <>
+          {characters.length > 0 && (
+            <p className="text-xs text-muted">
+              Manually entered characters are marked Unverified for officers.{" "}
+              <button type="button" className="link" onClick={() => setManual(false)}>
+                Choose a Battle.net character instead
+              </button>
+            </p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="First name" name="characterName">
+              <input id="characterName" name="characterName" className="field" required maxLength={12} autoComplete="off" />
+            </Field>
+            <Field label="Surname" name="characterSurname">
+              <input id="characterSurname" name="characterSurname" className="field" required maxLength={12} autoComplete="off" />
+            </Field>
+          </div>
+          <ClassSpecFields showFaction={showFaction} />
+          <Field label="Level" name="level">
+            <input id="level" name="level" type="number" min={1} max={MAX_LEVEL} defaultValue={MAX_LEVEL} className="field" required />
+          </Field>
+        </>
+      )}
+
+      <Field label="Raid experience" name="raidExperience" hint="Which raids have you cleared, in which era, and in what role?">
+        <textarea id="raidExperience" name="raidExperience" className="field" required />
+      </Field>
+      <Field label="Availability" name="availability" hint="Which nights and hours can you raid? Include your timezone.">
+        <textarea id="availability" name="availability" className="field" required />
+      </Field>
+      <Field label={faithPledge ? `Why the ${guildName}?` : `Why ${guildName}?`} name="whyThisGuild">
+        <textarea id="whyThisGuild" name="whyThisGuild" className="field" required />
+      </Field>
+      <Field label="Discord handle" name="discordHandle">
+        <input id="discordHandle" name="discordHandle" className="field" required defaultValue={defaultDiscord} />
+      </Field>
+      <div>
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" name="respectsFaith" className="mt-1 h-5 w-5 accent-crimson" required />
+          <span>
+            {faithPledge
+              ? "I have read the Charter. I will respect the Catholic faith of the Order and keep to its clean chat standard."
+              : "I have read the Charter and will keep to it."}
+          </span>
+        </label>
+      </div>
+      <FormMessage />
+      <SubmitButton pendingLabel="Submitting…">Submit application</SubmitButton>
+    </ActionForm>
+  );
+}

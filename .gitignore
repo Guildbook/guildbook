@@ -1,0 +1,72 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.key
+*.p12
+.tmp-*
+
+# WoW combat logs (real player data); tests/combatlog reads an optional local sample from here
+/tests/fixtures/combatlog/
+WoWCombatLog*.txt
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# env example is committed
+!.env.example
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# brand asset zoom sheets (pnpm brand:assets --preview)
+/.brand-preview/
+
+# vigil companion (Electron): dependencies, bundles, installers, addon copy made at build time
+/companion/node_modules
+/companion/dist
+/companion/release
+/companion/out
+/companion/resources/addon
+.neon
+
+# Local agent tooling
+/.agents/
+/skills-lock.json

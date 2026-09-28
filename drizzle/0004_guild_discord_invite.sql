@@ -1,0 +1,1 @@
+ALTER TABLE "guilds" ADD COLUMN "discord_invite_url" text;

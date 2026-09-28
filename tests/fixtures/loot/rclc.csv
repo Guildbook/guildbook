@@ -1,0 +1,6 @@
+player,date,time,id,item,itemID,itemString,response,votes,class,instance,boss,difficultyID,mapID,groupSize,gear1,gear2,responseID,isAwardReason,subType,equipLoc,note,owner 	
+Cassian-Forever,2026/12/8,20:47:00,1796780820-1,[Eskhandar's Right Claw],18203,item:18203::::::::60,Upgrade,3,ROGUE,Onyxia's Lair-40 Player,Onyxia,9,249,40,,,1,false,Fist Weapons,One-Hand,Council agreed,Unknown 	
+Ambrose-Forever,8/12/26,21:31:00,1796783460-2,[Felheart Gloves],16805,item:16805::::::::60,Offspec,0,WARLOCK,Molten Core,Lucifron,9,409,40,,,2,false,Cloth,Hands,nil,Unknown
+Athanasius-Forever,2026/12/8,22:20:00,1796786400-3,"[Thunderfury, Blessed Blade of the Windseeker]",19019,item:19019::::::::60,Main spec,5,WARRIOR,Molten Core-Normal,Garr,9,409,40,,,1,false,Swords,One-Hand,"Bindings, both halves",Unknown
+Anselm-Forever,2026/12/8,22:25:00,,[Choker of Enlightenment],17109,item:17109::::::::60,Disenchant,nil,PRIEST,Molten Core,Magmadar,9,409,40,,,DE,true,Miscellaneous,Neck,nil,Unknown
+,2026/12/8,22:30:00,1796786999-5,[Nothing],,,,nil,,,,,,,,,,,,,,

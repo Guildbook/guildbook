@@ -1,0 +1,101 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { Crest, CrestArt } from "@/components/crest";
+import { GuildEmblem } from "@/components/guild-emblem";
+import { GuildThemeStyle } from "@/components/guild-theme";
+import { TabardArt, TabardCrest } from "@/components/tabard-crest";
+import { brandFile, brandIcons, guildBrand } from "@/lib/brand";
+import { DEFAULT_TABARD, ORDER_TABARD, tabardKey, type TabardConfig } from "@/lib/tabard/config";
+import type { TabardDetail } from "@/lib/tabard/emblem-types";
+import { EMBLEMS } from "@/lib/tabard/emblems";
+import { svgToString } from "@/lib/tabard/svg-string";
+
+/** Captured from components/crest.tsx before tabard theming existed. */
+const BASELINE = JSON.parse(readFileSync("tests/fixtures/order-crest.json", "utf8")) as Record<"crest" | "full" | "mark" | "tiny", string>;
+
+const orderGuild = {
+  slug: "osm",
+  name: "Order of Saint Michael",
+  tabardBackground: ORDER_TABARD.background,
+  tabardBorder: ORDER_TABARD.border,
+  tabardBorderStyle: ORDER_TABARD.borderStyle,
+  tabardEmblem: ORDER_TABARD.emblem,
+  tabardEmblemColor: ORDER_TABARD.emblemColor,
+  themeBase: "order" as const,
+  themeOverrides: {},
+};
+const standardGuild = { ...orderGuild, slug: "silver-dawn", name: "Silver Dawn", themeBase: "tome" as const };
+
+describe("the Order of Saint Michael's look is unchanged", () => {
+  it("renders the crest byte for byte as before, at every detail level", () => {
+    expect(renderToStaticMarkup(createElement(Crest, {}))).toBe(BASELINE.crest);
+    expect(renderToStaticMarkup(createElement(CrestArt, { detail: "full", width: 100, height: 120 }))).toBe(BASELINE.full);
+    expect(renderToStaticMarkup(createElement(CrestArt, { detail: "mark", width: 40, height: 48 }))).toBe(BASELINE.mark);
+    expect(renderToStaticMarkup(createElement(CrestArt, { detail: "tiny", width: 16, height: 19.2 }))).toBe(BASELINE.tiny);
+  });
+
+  it("shows the locked crest (not the generic renderer) even though its tabard is stored", () => {
+    expect(renderToStaticMarkup(createElement(GuildEmblem, { guild: orderGuild }))).toBe(BASELINE.crest);
+  });
+
+  it("injects no theme CSS, so globals.css stays exactly as written", () => {
+    expect(renderToStaticMarkup(createElement(GuildThemeStyle, { guild: orderGuild }))).toBe("");
+    expect(renderToStaticMarkup(createElement(GuildThemeStyle, { guild: standardGuild }))).toContain("--color-crimson:");
+  });
+
+  it("keeps its static icon set, byte for byte", () => {
+    expect(brandIcons(guildBrand(orderGuild))).toEqual({
+      icon: [
+        { url: "/brand/osm/icon.svg", type: "image/svg+xml" },
+        { url: "/brand/osm/favicon.ico", sizes: "48x48" },
+      ],
+      apple: "/brand/osm/apple-icon.png",
+    });
+    const sha = (f: string) => createHash("sha1").update(readFileSync(`public/brand/${f}`)).digest("hex");
+    expect(sha("osm/favicon.ico")).toBe("27edbcb2c6f8eeaf35756cd2c196f75cf5d065aa");
+    expect(sha("osm/icon-512.png")).toBe("e72b4a23a62c6d5de1860eb2cd285782937beb2c");
+    expect(sha("osm/og.png")).toBe("f057d6af983bd9fd5eaff3a8cc79abcd043f9d1a");
+    expect(sha("discord-icon.png")).toBe("d30845c46d06e265a696b4ebc841e8e7da2f81c2");
+  });
+});
+
+describe("generic tabard crests", () => {
+  const tabards: TabardConfig[] = [DEFAULT_TABARD, { background: 25, border: 14, borderStyle: "studded", emblem: "wolf", emblemColor: 15 }];
+
+  it("give other guilds their tabard and versioned generated icons", () => {
+    const brand = guildBrand(standardGuild);
+    expect(brandFile(brand, "icon-192.png")).toBe(`/api/brand/silver-dawn/icon-192.png?v=${tabardKey(ORDER_TABARD)}`);
+    expect(renderToStaticMarkup(createElement(GuildEmblem, { guild: standardGuild }))).toContain('aria-label="Silver Dawn tabard"');
+  });
+
+  it("render deterministically with no ids, gradients or long decimals", () => {
+    for (const tabard of tabards) {
+      const html = renderToStaticMarkup(createElement(TabardCrest, { tabard, label: "x" }));
+      expect(html).toBe(renderToStaticMarkup(createElement(TabardCrest, { tabard, label: "x" })));
+      expect(html).not.toMatch(/ id=|url\(|<defs|NaN|\d+\.\d{3,}/);
+      for (const d of ["tiny", "mark", "full"]) expect(html).toContain(`data-detail="${d}"`);
+    }
+  });
+
+  it("render every emblem and border style at every detail", () => {
+    for (const e of EMBLEMS) {
+      for (const borderStyle of ["plain", "double", "wide", "studded", "stitched"] as const) {
+        const html = renderToStaticMarkup(createElement(TabardCrest, { tabard: { ...DEFAULT_TABARD, emblem: e.id, borderStyle }, label: e.name }));
+        expect(html, `${e.id} ${borderStyle}`).not.toMatch(/NaN|undefined/);
+      }
+    }
+  });
+
+  it("serialize for the icon routes exactly as React renders them", () => {
+    const normalize = (s: string) => s.replace(/><\/(path|circle|rect|ellipse|line|polygon|polyline)>/g, "/>");
+    for (const tabard of tabards) {
+      for (const detail of ["tiny", "mark", "full"] as TabardDetail[]) {
+        const el = createElement(TabardArt, { tabard, detail, width: 100, height: 120 });
+        expect(normalize(svgToString(el))).toBe(normalize(renderToStaticMarkup(el)));
+      }
+    }
+  });
+});

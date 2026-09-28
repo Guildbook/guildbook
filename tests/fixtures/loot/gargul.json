@@ -1,0 +1,58 @@
+[
+  {
+    "checksum": "a1b2c3d4e5f6a7b8c9d0",
+    "isBonusLoot": false,
+    "itemLink": "|cffa335ee|Hitem:18203::::::::60:::::::::|h[Eskhandar's Right Claw]|h|r",
+    "itemID": 18203,
+    "awardedTo": "Cassian-Forever",
+    "awardedBy": "Ironvow-Forever",
+    "timestamp": 1796780820,
+    "received": true,
+    "winnerClass": "ROGUE",
+    "OS": false,
+    "SR": false,
+    "WL": true,
+    "PL": false,
+    "TMB": true,
+    "winningRollType": "MS",
+    "Rolls": []
+  },
+  {
+    "checksum": "b2c3d4e5f6a7b8c9d0e1",
+    "itemLink": "|cffa335ee|Hitem:16805::::::::60:::::::::|h[Felheart Gloves]|h|r",
+    "itemID": 16805,
+    "awardedTo": "Ambrose Duskmantle-Forever",
+    "timestamp": 1796783460,
+    "OS": false,
+    "SR": true,
+    "WL": false,
+    "PL": false,
+    "TMB": false,
+    "winningRollType": "SR"
+  },
+  {
+    "checksum": "c3d4e5f6a7b8c9d0e1f2",
+    "itemLink": "|cffa335ee|Hitem:17073::::::::60:::::::::|h[Earthshaker]|h|r",
+    "itemID": 17073,
+    "awardedTo": "Athanasius-Forever",
+    "timestamp": 1796786400,
+    "OS": true,
+    "winningRollType": "OS"
+  },
+  {
+    "checksum": "d4e5f6a7b8c9d0e1f2a3",
+    "itemLink": "|cff0070dd|Hitem:18264::::::::60:::::::::|h[Plans: Elemental Sharpening Stone]|h|r",
+    "itemID": 18264,
+    "awardedTo": "||de||",
+    "timestamp": 1796786460
+  },
+  {
+    "itemLink": "|cffa335ee|Hitem:16863::::::::60:::::::::|h[Gauntlets of Might]|h|r",
+    "awardedTo": "Godfrey-Forever",
+    "timestamp": 1796954940
+  },
+  {
+    "itemID": 17109,
+    "awardedTo": ""
+  }
+]

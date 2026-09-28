@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0908;
+  --color-ink-2: #14100e;
+  --color-ink-3: #1d1714;
+  --color-line: #3a2e22;
+  --color-crimson: #7a1020;
+  --color-crimson-bright: #a8182f;
+  --color-crimson-deep: #4a0913;
+  --color-gold: #c9a44c;
+  --color-gold-bright: #e6c877;
+  --color-gold-dim: #8a7036;
+  --color-bone: #ece4d4;
+  --color-muted: #a39888;
+  --color-parchment: #e9dcc0;
+  --color-parchment-ink: #2b1d12;
+  /* The tabard emblem colour on generic guild themes; the Order's highlights stay gold. */
+  --color-highlight: var(--color-gold);
+
+  --font-display: var(--font-cinzel), "Times New Roman", serif;
+  --font-title: var(--font-cinzel-decorative), var(--font-cinzel), serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+/* Toasts rise from the bottom on phones and drop in at the top right from `sm` up. */
+@keyframes toast-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+@keyframes toast-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+}
+
+body {
+  background-color: var(--color-ink);
+  background-image:
+    radial-gradient(ellipse at top, rgb(122 16 32 / 0.18), transparent 60%),
+    radial-gradient(ellipse at bottom, rgb(201 164 76 / 0.05), transparent 70%);
+  background-attachment: fixed;
+  color: var(--color-bone);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+@layer components {
+  .rule-gold {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(90deg, transparent, var(--color-gold) 20%, var(--color-gold-bright) 50%, var(--color-gold) 80%, transparent);
+  }
+
+  .panel {
+    border: 1px solid var(--color-line);
+    background: linear-gradient(180deg, var(--color-ink-3), var(--color-ink-2));
+    border-radius: 0.375rem;
+    box-shadow:
+      inset 0 1px 0 rgb(201 164 76 / 0.12),
+      0 8px 24px rgb(0 0 0 / 0.35);
+  }
+
+  /* The crest SVG holds three detail levels; its box width (set by the caller) picks one. */
+  .crest {
+    display: inline-block;
+    container-type: inline-size;
+  }
+  .crest > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .crest [data-detail="mark"],
+  .crest [data-detail="full"] {
+    display: none;
+  }
+  @container (min-width: 21px) {
+    .crest [data-detail="tiny"] {
+      display: none;
+    }
+    .crest [data-detail="mark"] {
+      display: inline;
+    }
+  }
+  @container (min-width: 64px) {
+    .crest [data-detail="mark"] {
+      display: none;
+    }
+    .crest [data-detail="full"] {
+      display: inline;
+    }
+  }
+
+  /* Used sparingly: charter and the crest frame. */
+  .parchment {
+    color: var(--color-parchment-ink);
+    background-color: var(--color-parchment);
+    background-image:
+      radial-gradient(ellipse at center, transparent 55%, rgb(120 80 30 / 0.28)),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.32 0 0 0 0 0.15 0 0 0 0.18 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    border: 1px solid var(--color-gold-dim);
+    border-radius: 0.25rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 0.25rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    transition:
+      background-color 150ms,
+      border-color 150ms,
+      color 150ms;
+    cursor: pointer;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--color-crimson-bright), var(--color-crimson));
+    border: 1px solid var(--color-gold-dim);
+    color: var(--color-bone);
+  }
+  .btn-primary:hover:not(:disabled) {
+    border-color: var(--color-gold);
+    color: #fff;
+  }
+  .btn-ghost {
+    border: 1px solid var(--color-line);
+    color: var(--color-gold);
+    background: transparent;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    border-color: var(--color-gold-dim);
+    background: rgb(201 164 76 / 0.06);
+  }
+  .btn-danger {
+    border: 1px solid var(--color-crimson);
+    color: #f3b4bd;
+    background: transparent;
+  }
+  /* The Guildbook platform (apex): the guild sites' ink and gold, without the Order's crimson. */
+  .platform {
+    background-color: var(--color-ink);
+    background-image:
+      radial-gradient(ellipse at top, rgb(201 164 76 / 0.13), transparent 60%),
+      radial-gradient(ellipse at bottom, rgb(140 150 170 / 0.06), transparent 70%);
+    background-attachment: fixed;
+  }
+  .btn-gold {
+    background-color: var(--color-gold);
+    background-image: linear-gradient(180deg, var(--color-gold-bright), var(--color-gold));
+    border: 1px solid var(--color-gold-bright);
+    color: var(--color-ink);
+  }
+  .btn-gold:hover:not(:disabled) {
+    background-color: var(--color-gold-bright);
+    background-image: none;
+  }
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.7rem;
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: 0.25rem;
+    background: var(--color-ink);
+    color: var(--color-bone);
+    font-size: 1rem;
+  }
+  .field:focus {
+    outline: 2px solid var(--color-gold-dim);
+    outline-offset: 1px;
+  }
+  textarea.field {
+    min-height: 7rem;
+  }
+
+  .link {
+    color: var(--color-gold);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .link:hover {
+    color: var(--color-gold-bright);
+  }
+
+  .prose-order h1,
+  .prose-order h2,
+  .prose-order h3 {
+    color: var(--color-crimson-deep);
+    margin: 1.25rem 0 0.5rem;
+  }
+  .prose-order h2 {
+    font-size: 1.35rem;
+  }
+  .prose-order h3 {
+    font-size: 1.1rem;
+  }
+  .prose-order p,
+  .prose-order ul,
+  .prose-order ol,
+  .prose-order blockquote {
+    margin: 0.75rem 0;
+    line-height: 1.7;
+  }
+  .prose-order ul {
+    list-style: disc;
+    padding-left: 1.5rem;
+  }
+  .prose-order ol {
+    list-style: decimal;
+    padding-left: 1.5rem;
+  }
+  .prose-order blockquote {
+    border-left: 3px solid var(--color-crimson);
+    padding-left: 1rem;
+    font-style: italic;
+  }
+  .prose-order a {
+    color: var(--color-crimson);
+    text-decoration: underline;
+  }
+  .prose-order strong {
+    font-weight: 700;
+  }
+  .prose-dark h1,
+  .prose-dark h2,
+  .prose-dark h3 {
+    color: var(--color-gold);
+  }
+  .prose-dark blockquote {
+    border-color: var(--color-gold-dim);
+  }
+  .prose-dark a {
+    color: var(--color-gold);
+  }
+
+  .toast-enter {
+    animation: toast-rise 180ms ease-out;
+  }
+  @media (min-width: 40rem) {
+    .toast-enter {
+      animation-name: toast-drop;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast-enter {
+      animation: none;
+    }
+  }
+
+  /* Long-form lore: wider leading, centred section headings and a drop cap on the opening paragraph. */
+  .lore .prose-order {
+    font-size: 1.0625rem;
+  }
+  .lore .prose-order p {
+    line-height: 1.85;
+  }
+  .lore .prose-order h2 {
+    margin: 2.5rem 0 1rem;
+    text-align: center;
+    font-size: 1.2rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .lore .prose-order h2::after {
+    content: "";
+    display: block;
+    width: 4rem;
+    height: 1px;
+    margin: 0.6rem auto 0;
+    background: linear-gradient(90deg, transparent, var(--color-gold-dim), transparent);
+  }
+  .lore .prose-order > h2:first-child {
+    margin-top: 0;
+  }
+  .lore .prose-order > h2:first-child + p::first-letter {
+    float: left;
+    margin: 0.35rem 0.6rem 0 0;
+    font-family: var(--font-title);
+    font-size: 3.6rem;
+    line-height: 0.8;
+    color: var(--color-crimson);
+  }
+  .lore .prose-order > p:last-child {
+    margin-top: 2rem;
+    text-align: center;
+    color: var(--color-crimson-deep);
+  }
+}
