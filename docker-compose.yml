@@ -1,3 +1,5 @@
+# Pinned so the existing container and volume survive the checkout folder being renamed.
+name: order-of-saint-michael
 services:
   db:
     image: postgres:17
