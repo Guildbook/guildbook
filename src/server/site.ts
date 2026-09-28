@@ -9,7 +9,7 @@ import { guildLookColumns } from "@/server/services/tabard";
 export interface SiteIdentity {
   current: RequestHost;
   /** Null on the platform apex. */
-  guild: { slug: string; name: string; description: string } | null;
+  guild: { slug: string; name: string; description: string; publishedAt: Date | null } | null;
   brand: BrandAssets;
 }
 
@@ -20,7 +20,7 @@ export async function getSiteIdentity(): Promise<SiteIdentity> {
   const slug = route.kind === "guild" ? route.slug : route.kind === "fallback" ? route.defaultGuildSlug : null;
   if (!slug) return { current, guild: null, brand: staticBrand("guildbook") };
   const [guild] = await db
-    .select({ slug: guilds.slug, name: guilds.name, description: guilds.description, ...guildLookColumns })
+    .select({ slug: guilds.slug, name: guilds.name, description: guilds.description, publishedAt: guilds.publishedAt, ...guildLookColumns })
     .from(guilds)
     .where(eq(guilds.slug, slug));
   if (!guild) return { current, guild: null, brand: staticBrand("guildbook") };

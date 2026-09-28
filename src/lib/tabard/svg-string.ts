@@ -1,7 +1,7 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 
 /** SVG attributes whose names stay camelCase. */
-const CAMEL_ATTRS = new Set(["viewBox", "preserveAspectRatio"]);
+const CAMEL_ATTRS = new Set(["viewBox", "preserveAspectRatio", "tableValues"]);
 const VOID = new Set(["path", "circle", "ellipse", "rect", "line", "polygon", "polyline", "stop", "use"]);
 
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

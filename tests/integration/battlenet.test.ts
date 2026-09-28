@@ -65,17 +65,28 @@ describe("linking", () => {
     const [row] = await db.select().from(battlenetLinks).where(eq(battlenetLinks.userId, visitor.userId));
     expect(row).toMatchObject({ region: "us", snapshotStatus: "ok" });
     expect(row!.battletag).toMatch(/^Pilgrim#\d{4}$/);
-    expect(row!.characters).toHaveLength(4);
+    expect(row!.characters.map((c) => [c.name, c.region])).toEqual([
+      ["Aldric", "us"],
+      ["Brenna", "us"],
+      ["Corwin", "us"],
+      ["Grukk", "us"],
+      ["Isolde", "eu"],
+    ]);
     // The Anniversary character is recorded as found but excluded, never offered for import.
     expect(row!.scan).toMatchObject({
       foreverNamespace: "profile-classic1x-us",
       excluded: [{ version: "anniversary", faction: "alliance", count: 1, examples: [{ name: "Elowen", realmName: "Dreamscythe" }] }],
     });
-    expect(row!.scan!.namespaces.map((n) => [n.namespace, n.httpStatus, n.characters])).toEqual([
-      ["profile-classic1x-us", 200, 5],
-      ["profile-classicann-us", 200, 1],
-      ["profile-classic-us", 404, 0],
-      ["profile-us", 404, 0],
+    expect(row!.scan!.foreverNamespaces).toEqual(["profile-classic1x-us", "profile-classic1x-eu"]);
+    expect(row!.scan!.namespaces.map((n) => [n.namespace, n.region, n.httpStatus, n.characters])).toEqual([
+      ["profile-classic1x-us", "us", 200, 5],
+      ["profile-classicann-us", "us", 200, 1],
+      ["profile-classic-us", "us", 404, 0],
+      ["profile-us", "us", 404, 0],
+      ["profile-classic1x-eu", "eu", 200, 1],
+      ["profile-classicann-eu", "eu", 404, 0],
+      ["profile-classic-eu", "eu", 404, 0],
+      ["profile-eu", "eu", 404, 0],
     ]);
     expect(row!.accessTokenEnc).not.toContain("mock-user");
     expect(decryptToken(row!.accessTokenEnc!, tokenKey)).toBe(`mock-user.${visitor.userId}`);
@@ -95,6 +106,37 @@ describe("linking", () => {
     const horde = await createGuild(db, { faction: "horde" });
     const hordeView = await getEligibleCharacters(db, { ...visitor, guildId: horde.guild.id }, anyRealm);
     expect(hordeView.characters.map((c) => c.name)).toEqual(["Grukk"]);
+  });
+
+  it("offers each guild only the characters in its region", async () => {
+    const us = await createGuild(db, { faction: "alliance", region: "us" });
+    const eu = await createGuild(db, { faction: "alliance", region: "eu" });
+    const visitor = await createVisitor(db, us.guild.id);
+    await link(visitor);
+    const euView = await getEligibleCharacters(db, { ...visitor, guildId: eu.guild.id }, anyRealm);
+    expect(euView.characters.map((c) => [c.name, c.region])).toEqual([["Isolde", "eu"]]);
+    // Region-prefixed realm allowlist entries only apply in their region.
+    const euRealms = await getEligibleCharacters(db, { ...visitor, guildId: eu.guild.id }, { realmSlugs: ["eu:elsewhere", "us:hollowmere"] });
+    expect(euRealms.characters).toEqual([]);
+    const euListed = await getEligibleCharacters(db, { ...visitor, guildId: eu.guild.id }, { realmSlugs: ["eu:hollowmere", "us:silverpine"] });
+    expect(euListed.characters.map((c) => c.name)).toEqual(["Isolde"]);
+
+    // Snapshots from before regions have no region on their characters: they were US.
+    const [row] = await db.select().from(battlenetLinks).where(eq(battlenetLinks.userId, visitor.userId));
+    const legacy = row!.characters.filter((c) => c.region === "us").map(({ region: _region, ...c }) => c);
+    await db.update(battlenetLinks).set({ characters: legacy }).where(eq(battlenetLinks.userId, visitor.userId));
+    expect((await getEligibleCharacters(db, visitor, anyRealm)).characters.map((c) => c.name)).toEqual(["Aldric", "Brenna", "Corwin"]);
+    expect((await getEligibleCharacters(db, { ...visitor, guildId: eu.guild.id }, anyRealm)).characters).toEqual([]);
+  });
+
+  it("keeps one region's characters when the other region refuses the account", async () => {
+    const guild = await createGuild(db, { faction: "alliance" });
+    const visitor = await createVisitor(db, guild.guild.id);
+    await link(visitor, `${visitor.userId}-eu-forbidden`);
+    const [row] = await db.select().from(battlenetLinks).where(eq(battlenetLinks.userId, visitor.userId));
+    expect(row!.snapshotStatus).toBe("ok");
+    expect(row!.characters.map((c) => c.region)).toEqual(["us", "us", "us", "us"]);
+    expect(row!.scan!.namespaces.filter((n) => n.region === "eu").map((n) => n.status)).toEqual(["forbidden", "forbidden", "forbidden", "forbidden"]);
   });
 
   it("refuses a Battle.net account already linked to another Discord user", async () => {
@@ -263,7 +305,7 @@ describe("member import", () => {
       anyRealm,
     );
     expect(imported.created).toBe(true);
-    expect(imported.character).toMatchObject({ name: "Brenna", level: 42, wowClass: "priest", verified: true, isMain: false });
+    expect(imported.character).toMatchObject({ name: "Brenna", level: 42, wowClass: "priest", verified: true, isMain: false, region: "us" });
 
     const upgraded = await importBattlenetCharacter(
       db,
@@ -276,7 +318,7 @@ describe("member import", () => {
 
     const mine = await db.select().from(characters).where(eq(characters.membershipId, member.membershipId!));
     expect(mine).toHaveLength(3);
-    expect(mine.find((c) => c.name === "Wystan")).toMatchObject({ verified: false, bnetCharacterId: null });
+    expect(mine.find((c) => c.name === "Wystan")).toMatchObject({ verified: false, bnetCharacterId: null, region: null });
 
     // Importing again updates in place rather than duplicating.
     await importBattlenetCharacter(

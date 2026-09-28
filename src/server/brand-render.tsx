@@ -2,23 +2,46 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
-import { detailForWidth, TabardArt } from "@/components/tabard-crest";
-import { FACTION_LABELS, type Faction, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { type CrestImages, detailForWidth, emblemRect, TabardArt } from "@/components/tabard-art";
+import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
 import { fromOklch, shiftLightness, toOklch } from "@/lib/tabard/color";
 import type { TabardConfig } from "@/lib/tabard/config";
 import type { GuildLook } from "@/lib/tabard/look";
 import { computeTheme, type SelectableBase } from "@/lib/tabard/theme";
 import { svgToString } from "@/lib/tabard/svg-string";
+import { crestImages } from "@/server/tabard-tint";
 
 /** The crest's width over its height (its viewBox is 100 by 120). */
 const ASPECT = 100 / 120;
 
-/** The tabard as SVG markup at the detail the site would show for this rendered height. */
-export function tabardSvg(tabard: TabardConfig, height: number, detail = detailForWidth(height * ASPECT)) {
-  return svgToString(<TabardArt tabard={tabard} detail={detail} width={height * ASPECT} height={height} />);
+/**
+ * The tabard as SVG markup at the detail the site would show for this rendered height, with the emblem from
+ * `crestImages` (a tinted data URI).
+ */
+export function tabardSvg(tabard: TabardConfig, height: number, images: CrestImages, detail = detailForWidth(height * ASPECT)) {
+  return svgToString(<TabardArt tabard={tabard} detail={detail} width={height * ASPECT} height={height} images={images} />);
 }
 
 const dataUri = (svg: string) => `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+
+/**
+ * The crest `height` pixels tall for satori: the banner as an SVG image with the tinted emblem laid over it as its own
+ * image, since an image inside an SVG image isn't drawn.
+ */
+async function CrestPicture({ tabard, height, style }: { tabard: TabardConfig; height: number; style?: React.CSSProperties }) {
+  const width = height * ASPECT;
+  const detail = detailForWidth(width);
+  const { emblem } = await crestImages(tabard);
+  const [x, y, w, h] = emblemRect(detail).map((v) => (v * height) / 120) as [number, number, number, number];
+  return (
+    <div style={{ display: "flex", position: "relative", width, height, ...style }}>
+      {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+      <img src={dataUri(tabardSvg(tabard, height, { mode: "bare" }, detail))} width={width} height={height} style={{ position: "absolute", left: 0, top: 0 }} />
+      {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+      <img src={emblem} width={w} height={h} style={{ position: "absolute", left: x, top: y }} />
+    </div>
+  );
+}
 
 /** The site colours the images use, so a guild's icons and preview match its theme. */
 function palette(look: GuildLook) {
@@ -35,12 +58,10 @@ async function png(element: React.ReactElement, width: number, height: number, f
 }
 
 /** The crest filling the height of a transparent square. */
-export function crestIcon(look: GuildLook, px: number) {
-  const h = px;
+export async function crestIcon(look: GuildLook, px: number) {
   return png(
     <div style={{ display: "flex", width: px, height: px, alignItems: "center", justifyContent: "center" }}>
-      {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
-      <img src={dataUri(tabardSvg(look.tabard, h))} width={h * ASPECT} height={h} />
+      {await CrestPicture({ tabard: look.tabard, height: px })}
     </div>,
     px,
     px,
@@ -48,7 +69,7 @@ export function crestIcon(look: GuildLook, px: number) {
 }
 
 /** The crest centred on a solid tile at `fill` of its height (apple touch, maskable and Discord icons). */
-export function paddedIcon(look: GuildLook, px: number, fill: number) {
+export async function paddedIcon(look: GuildLook, px: number, fill: number) {
   const c = palette(look);
   const h = px * fill;
   return png(
@@ -63,8 +84,7 @@ export function paddedIcon(look: GuildLook, px: number, fill: number) {
         backgroundImage: `radial-gradient(circle at 50% 50%, ${c.glow}73 0%, ${c.glow}00 70%)`,
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
-      <img src={dataUri(tabardSvg(look.tabard, h))} width={h * ASPECT} height={h} />
+      {await CrestPicture({ tabard: look.tabard, height: h })}
     </div>,
     px,
     px,
@@ -126,10 +146,11 @@ function publicPng(rel: string) {
   return uri;
 }
 
-/** What a guild's link preview says besides its name. Ruleset and verification are optional. */
+/** What a guild's link preview says besides its name. Region, ruleset and verification are optional. */
 export interface PreviewFacts {
   name: string;
   motto: string | null;
+  region?: Region | null;
   faction: Faction | null;
   ruleset?: Ruleset | null;
   recruiting: boolean;
@@ -191,6 +212,11 @@ const GRAIN = dataUri(
 const seal = (fill: string, check: string) =>
   dataUri(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="44" height="44"><path d="M8 .8l1.6 1.3 2-.4.8 1.9 1.9.8-.4 2L15.2 8l-1.3 1.6.4 2-1.9.8-.8 1.9-2-.4L8 15.2l-1.6-1.3-2 .4-.8-1.9-1.9-.8.4-2L.8 8l1.3-1.6-.4-2 1.9-.8.8-1.9 2 .4Z" fill="${fill}"/><path d="m5.2 8.2 1.9 1.9 3.8-4" fill="none" stroke="${check}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  );
+
+const globe = (stroke: string) =>
+  dataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="44" height="44"><path d="M8 1.75a6.25 6.25 0 1 0 0 12.5 6.25 6.25 0 0 0 0-12.5ZM1.75 8h12.5M8 1.75c1.8 1.7 2.7 3.8 2.7 6.25S9.8 12.55 8 14.25M8 1.75C6.2 3.45 5.3 5.55 5.3 8s.9 4.55 2.7 6.25M2.8 4.75h10.4M2.8 11.25h10.4" fill="none" stroke="${stroke}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   );
 
 /** Cinzel Decorative Bold advance widths at 100px (measured with resvg), to fit names to the column. */
@@ -269,7 +295,9 @@ export async function linkPreview(look: GuildLook, guild: PreviewFacts) {
   const c = previewPalette(look);
   const order = look.base === "order";
   const crestPx = 440;
-  const crest = order ? await publicPng("brand/osm/icon-512.png") : dataUri(tabardSvg(look.tabard, crestPx));
+  const crest = order
+    ? await publicPng("brand/osm/icon-512.png")
+    : await CrestPicture({ tabard: look.tabard, height: crestPx, style: { position: "absolute", left: 310 - (crestPx * ASPECT) / 2, top: (630 - crestPx) / 2 } });
   const faction = guild.faction ? await publicPng(`icons/factions/${guild.faction}.png`) : null;
   const size = nameSize(guild.name);
   const column = { position: "absolute", left: 580, width: NAME_COLUMN } as const;
@@ -293,12 +321,11 @@ export async function linkPreview(look: GuildLook, guild: PreviewFacts) {
       {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
       <img src={GRAIN} width={1200} height={630} style={{ position: "absolute", left: 0, top: 0 }} />
       <div style={{ position: "absolute", left: 24, top: 24, right: 24, bottom: 24, borderRadius: 6, border: `1px solid ${c.trim}40` }} />
-      {order ? (
+      {typeof crest === "string" ? (
         // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
         <img src={crest} width={crestPx} height={crestPx} style={{ position: "absolute", left: 310 - crestPx / 2, top: (630 - crestPx) / 2 }} />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
-        <img src={crest} width={crestPx * ASPECT} height={crestPx} style={{ position: "absolute", left: 310 - (crestPx * ASPECT) / 2, top: (630 - crestPx) / 2 }} />
+        crest
       )}
       <div style={{ ...column, top: 60, bottom: 110, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         {guild.eyebrow && (
@@ -345,6 +372,13 @@ export async function linkPreview(look: GuildLook, guild: PreviewFacts) {
           </div>
         )}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {guild.region && (
+            <Pill c={c}>
+              {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+              <img src={globe(c.trim)} width={20} height={20} />
+              {REGION_LABELS[guild.region]}
+            </Pill>
+          )}
           {(guild.faction || guild.ruleset) && (
             <Pill c={c}>
               {guild.faction && faction && (

@@ -2,7 +2,8 @@ import { expect, type Page, test } from "@playwright/test";
 import { randomCharacterName, signIn } from "./helpers";
 
 // Runs against BATTLENET_MOCK=1: linking skips Battle.net and returns fixture characters
-// (Aldric, Brenna and Corwin for the Alliance; a Horde warrior and a Death Knight are filtered out).
+// (Aldric, Brenna and Corwin for the Alliance; a Horde warrior, a Death Knight and Isolde, who is in
+// the EU region while the seeded guilds are in the Americas, are filtered out).
 
 async function fillFreeText(page: Page, discord: string) {
   await page.getByLabel("Raid experience").fill("Healed Molten Core and Blackwing Lair in Classic.");
@@ -26,6 +27,7 @@ test("an applicant links Battle.net, picks a character, and the officer sees it 
   await expect(page.getByRole("radio", { name: /Aldric/ })).toBeChecked();
   await expect(page.getByRole("radio", { name: /Grukk/ })).toHaveCount(0);
   await expect(page.getByRole("radio", { name: /Mortis/ })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: /Isolde/ })).toHaveCount(0);
   // A click that lands before hydration is reset by React, so retry until the form follows the choice.
   await expect(async () => {
     await page.getByRole("radio", { name: /Brenna/ }).check();

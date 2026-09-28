@@ -21,12 +21,19 @@ describe("guild names", () => {
   });
 
   it("describes an identity", () => {
-    expect(describeIdentity({ faction: "horde", ruleset: "rp" })).toBe("Horde, Roleplaying");
+    expect(describeIdentity({ region: "eu", faction: "horde", ruleset: "rp" })).toBe("Europe, Horde, Roleplaying");
   });
 });
 
 describe("guild creation input", () => {
-  const base = { name: "Dawn", slug: "dawn", timezone: "America/New_York" };
+  const base = { name: "Dawn", slug: "dawn", timezone: "America/New_York", region: "us" };
+
+  it("requires a supported region", () => {
+    const { region: _region, ...noRegion } = base;
+    expect(createGuildInput.safeParse({ ...noRegion, faction: "horde", ruleset: "normal" }).success).toBe(false);
+    expect(createGuildInput.safeParse({ ...base, region: "kr", faction: "horde", ruleset: "normal" }).success).toBe(false);
+    expect(createGuildInput.parse({ ...base, region: "eu", faction: "horde", ruleset: "normal" }).region).toBe("eu");
+  });
 
   it("requires one faction and a ruleset", () => {
     expect(createGuildInput.safeParse({ ...base, ruleset: "normal" }).success).toBe(false);

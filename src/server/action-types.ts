@@ -5,4 +5,4 @@
  */
 export type ActionResult =
   | { ok: true; message?: string }
-  | { ok: false; error: string; fieldErrors?: Record<string, string[] | undefined> };
+  | { ok: false; error: string; fieldErrors?: Record<string, string[] | undefined>; suggestions?: Record<string, string[]> };

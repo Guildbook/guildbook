@@ -9,15 +9,15 @@ import { CLASS_INFO, MAX_LEVEL } from "@/lib/game";
 import { scrollIntoViewGently, scrollToTop } from "@/lib/scroll";
 import type { ActionResult } from "@/server/action-types";
 
-/** Server-side rejections scroll to the first error; the browser already does this for native `required` checks. */
+/** Rejections without field errors scroll to the message; `ActionForm` focuses the first invalid field otherwise. */
 function ScrollToFirstError() {
   const result = useActionResult();
   const anchor = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     if (!result || result.ok) return;
-    const form = anchor.current?.closest("form");
-    const target = form?.querySelector("[data-field-error]")?.parentElement ?? form?.querySelector('[role="alert"]');
+    if (Object.values(result.fieldErrors ?? {}).some((e) => e?.length)) return;
+    const target = anchor.current?.closest("form")?.querySelector('[role="alert"]');
     if (target) scrollIntoViewGently(target);
     else scrollToTop();
   }, [result]);

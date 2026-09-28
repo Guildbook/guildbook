@@ -88,7 +88,7 @@ export default async function AdminProgressionPage({ params }: PageProps<"/[guil
               </li>
             ))}
           </ul>
-          <ActionForm action={createBossAction.bind(null, slug)} className="mt-3 flex gap-2" resetOnSuccess>
+          <ActionForm action={createBossAction.bind(null, slug)} className="mt-3 flex gap-2">
             <input type="hidden" name="instanceId" value={instance.id} />
             <input name="name" className="field" placeholder="New boss name" aria-label="New boss name" required />
             <SubmitButton variant="ghost" size="sm">
@@ -100,7 +100,7 @@ export default async function AdminProgressionPage({ params }: PageProps<"/[guil
       ))}
 
       <Panel title="Add raid instance">
-        <ActionForm action={createInstanceAction.bind(null, slug)} className="grid gap-3 sm:grid-cols-4 sm:items-end" resetOnSuccess>
+        <ActionForm action={createInstanceAction.bind(null, slug)} className="grid gap-3 sm:grid-cols-4 sm:items-end">
           <Field label="Name" name="name">
             <input id="inst-name" name="name" className="field" required />
           </Field>

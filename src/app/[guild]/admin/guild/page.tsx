@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
-import { FactionChoice } from "@/components/faction-choice";
-import { RulesetChoice } from "@/components/ruleset";
 import { PageHeader, Panel, Tag } from "@/components/ui";
 import { db } from "@/db";
 import { formatDate } from "@/lib/format";
@@ -12,6 +10,7 @@ import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { dnsInstructions, type GuildDomain, listGuildDomains, MAX_DOMAINS_PER_GUILD } from "@/server/services/domains";
 import { vercelConfigFromEnv } from "@/server/vercel-domains";
 import { DeleteGuildPanel } from "./delete-guild-panel";
+import { GuildSettingsForm } from "./settings-form";
 import { TabardSection } from "./tabard-section";
 import { VerifyGuildPanel } from "./verify-guild-panel";
 
@@ -87,62 +86,16 @@ export default async function GuildSettingsPage({ params }: PageProps<"/[guild]/
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader title="Guild Settings" />
       <Panel>
-        <ActionForm action={updateGuildSettingsAction.bind(null, slug)} className="space-y-4">
-          <Field label="Name" name="name">
-            <input id="name" name="name" className="field" defaultValue={guild.name} required />
-          </Field>
-          <Field label="Motto" name="motto">
-            <input id="motto" name="motto" className="field" defaultValue={guild.motto ?? ""} />
-          </Field>
-          <Field label="Home page description" name="description">
-            <textarea id="description" name="description" className="field" defaultValue={guild.description} />
-          </Field>
-          <Field label="Server timezone" name="timezone" hint="IANA name, e.g. America/New_York or America/Los_Angeles">
-            <input id="timezone" name="timezone" className="field" defaultValue={guild.timezone} required />
-          </Field>
-          <fieldset>
-            <legend className="field-label">Faction</legend>
-            <FactionChoice defaultValue={guild.faction} />
-          </fieldset>
-          <fieldset>
-            <legend className="field-label">Ruleset</legend>
-            <RulesetChoice defaultValue={guild.ruleset} />
-            <p className="mt-1 text-xs text-muted">
-              {guild.verifiedAt
-                ? "Your guild is verified. Changing its name, faction or ruleset removes the verification until you verify again."
-                : "Name, faction and ruleset identify your guild on Guildbook and must match the in-game guild to verify it."}
-            </p>
-          </fieldset>
-          <Field label="Discord invite link" name="discordInviteUrl" hint="Shown in the site footer, e.g. https://discord.gg/yourcode">
-            <input
-              id="discordInviteUrl"
-              name="discordInviteUrl"
-              type="url"
-              className="field"
-              defaultValue={guild.discordInviteUrl ?? ""}
-              placeholder="https://discord.gg/"
-            />
-          </Field>
-          <label className="flex items-center gap-3 text-sm">
-            <input type="checkbox" name="recruitmentOpen" defaultChecked={guild.recruitmentOpen} className="h-5 w-5 accent-crimson" />
-            Recruitment open
-          </label>
-          <label className="flex items-center gap-3 text-sm">
-            <input type="checkbox" name="directoryListed" defaultChecked={guild.directoryListed} className="h-5 w-5 accent-crimson" />
-            List this guild in the public Guildbook directory
-          </label>
-          <label className="flex items-center gap-3 text-sm">
-            <input type="checkbox" name="lootPublic" defaultChecked={guild.lootPublic} className="h-5 w-5 accent-crimson" />
-            Show the loot ledger to visitors (members always see it)
-          </label>
-          <FormMessage />
-          <SubmitButton>Save</SubmitButton>
-        </ActionForm>
+        <GuildSettingsForm action={updateGuildSettingsAction.bind(null, slug)} guild={guild} />
       </Panel>
 
-      <VerifyGuildPanel guild={guild} />
+      <div id="verify" className="scroll-mt-24">
+        <VerifyGuildPanel guild={guild} />
+      </div>
 
-      <TabardSection guild={guild} />
+      <div id="tabard" className="scroll-mt-24">
+        <TabardSection guild={guild} />
+      </div>
 
       <Panel title="Custom domains" actions={<Tag>Optional</Tag>}>
         <div className="space-y-4 text-sm">

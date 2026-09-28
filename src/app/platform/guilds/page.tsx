@@ -3,10 +3,21 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { FactionIcon } from "@/components/faction-icon";
+import { RegionIcon } from "@/components/region";
 import { RulesetIcon } from "@/components/ruleset";
 import { PageHeader } from "@/components/ui";
 import { db } from "@/db";
-import { FACTION_LABELS, FACTIONS, type Faction, RULESET_INFO, RULESETS, type Ruleset } from "@/lib/game";
+import {
+  FACTION_LABELS,
+  FACTIONS,
+  type Faction,
+  REGION_LABELS,
+  REGIONS,
+  type Region,
+  RULESET_INFO,
+  RULESETS,
+  type Ruleset,
+} from "@/lib/game";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { listDirectoryGuilds } from "@/server/services/platform";
 import { GuildCard } from "../guild-card";
@@ -37,17 +48,19 @@ function FilterChip({ href, active, children }: { href: string; active: boolean;
 
 export default async function DirectoryPage({ searchParams }: PageProps<"/platform/guilds">) {
   const sp = await searchParams;
+  const region = pick<Region>(REGIONS, sp.region);
   const faction = pick<Faction>(FACTIONS, sp.faction);
   const ruleset = pick<Ruleset>(RULESETS, sp.ruleset);
-  const [current, guilds] = await Promise.all([getRequestHost(), listDirectoryGuilds(db, { faction, ruleset })]);
-  const href = (next: { faction?: Faction; ruleset?: Ruleset }) => {
+  const [current, guilds] = await Promise.all([getRequestHost(), listDirectoryGuilds(db, { region, faction, ruleset })]);
+  const href = (next: { region?: Region; faction?: Faction; ruleset?: Ruleset }) => {
     const params = new URLSearchParams();
+    if (next.region) params.set("region", next.region);
     if (next.faction) params.set("faction", next.faction);
     if (next.ruleset) params.set("ruleset", next.ruleset);
     const query = params.toString();
     return query ? `/guilds?${query}` : "/guilds";
   };
-  const filtered = Boolean(faction || ruleset);
+  const filtered = Boolean(region || faction || ruleset);
 
   return (
     <div>
@@ -57,12 +70,24 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
       </PageHeader>
       <nav aria-label="Filter guilds" className="mb-6 space-y-2" data-testid="directory-filters">
         <div className="flex flex-wrap items-center gap-2">
+          <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Region</span>
+          <FilterChip href={href({ faction, ruleset })} active={!region}>
+            All
+          </FilterChip>
+          {REGIONS.map((r) => (
+            <FilterChip key={r} href={href({ region: r, faction, ruleset })} active={region === r}>
+              <RegionIcon size={13} className="text-gold-dim" />
+              {REGION_LABELS[r]}
+            </FilterChip>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Faction</span>
-          <FilterChip href={href({ ruleset })} active={!faction}>
+          <FilterChip href={href({ region, ruleset })} active={!faction}>
             All
           </FilterChip>
           {FACTIONS.map((f) => (
-            <FilterChip key={f} href={href({ faction: f, ruleset })} active={faction === f}>
+            <FilterChip key={f} href={href({ region, faction: f, ruleset })} active={faction === f}>
               <FactionIcon faction={f} size={14} decorative />
               {FACTION_LABELS[f]}
             </FilterChip>
@@ -70,11 +95,11 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Ruleset</span>
-          <FilterChip href={href({ faction })} active={!ruleset}>
+          <FilterChip href={href({ region, faction })} active={!ruleset}>
             All
           </FilterChip>
           {RULESETS.map((r) => (
-            <FilterChip key={r} href={href({ faction, ruleset: r })} active={ruleset === r}>
+            <FilterChip key={r} href={href({ region, faction, ruleset: r })} active={ruleset === r}>
               <RulesetIcon ruleset={r} size={13} className="text-gold-dim" />
               {RULESET_INFO[r].label}
             </FilterChip>

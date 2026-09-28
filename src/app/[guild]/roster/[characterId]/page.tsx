@@ -4,11 +4,13 @@ import { cache } from "react";
 import { ClassIcon } from "@/components/class-icon";
 import { LootTable } from "@/components/loot-table";
 import { RankInsignia } from "@/components/rank-insignia";
+import { RegionTag } from "@/components/region";
 import { CharacterLink, ClassName, FactionBadge, PageHeader, Panel, RoleBadge, Tag, VerifiedMark } from "@/components/ui";
 import { db } from "@/db";
 import { TIER_LABELS } from "@/lib/authz/tiers";
 import { CLASS_INFO, fullName, PROFESSION_LABELS } from "@/lib/game";
 import { formatDate } from "@/lib/format";
+import { guildWording } from "@/lib/guild-wording";
 import { insigniaFor } from "@/lib/insignia";
 import { canViewLoot } from "@/lib/loot/access";
 import { getGuild, getViewer } from "@/server/context";
@@ -30,7 +32,7 @@ export async function generateMetadata({ params }: PageProps<"/[guild]/roster/[c
   const { guild, character } = await loadCharacter(slug, characterId);
   return {
     title: fullName(character.name, character.surname),
-    description: `${classLine(character)} of the ${guild.name}.`,
+    description: `${classLine(character)} ${guildWording(guild).characterOf}.`,
   };
 }
 
@@ -64,6 +66,7 @@ export default async function CharacterPage({ params }: PageProps<"/[guild]/rost
               Verified
             </Tag>
           )}
+          {c.verified && c.region && <RegionTag region={c.region} className="self-center" />}
         </div>
       </PageHeader>
 
@@ -75,8 +78,8 @@ export default async function CharacterPage({ params }: PageProps<"/[guild]/rost
               <p className="font-display text-lg leading-tight text-gold">{c.rankName}</p>
               <p className="text-xs leading-none tracking-wider text-gold-dim uppercase">{TIER_LABELS[c.rankTier]}</p>
               {c.joinedAt && (
-                <p className="pt-1 text-sm leading-snug text-muted">
-                  Joined the Order <time dateTime={c.joinedAt.toISOString()}>{formatDate(c.joinedAt, guild.timezone)}</time>
+                <p className="pt-1 text-sm leading-snug break-words text-muted">
+                  {guildWording(guild).joined} <time dateTime={c.joinedAt.toISOString()}>{formatDate(c.joinedAt, guild.timezone)}</time>
                 </p>
               )}
             </div>

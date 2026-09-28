@@ -1,15 +1,12 @@
 import { eq } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { contentPages, guilds, ranks } from "@/db/schema";
-import type { RankTier } from "@/lib/authz/tiers";
-import type { Faction, Ruleset } from "@/lib/game";
-import type { Insignia } from "@/lib/insignia";
+import type { Faction, Region, Ruleset } from "@/lib/game";
+import { DEFAULT_RANK_PRESET, RANK_PRESETS, type RankPresetKey, type RankTemplate } from "@/lib/rank-presets";
 import { LORE_MD, LORE_SLUG, LORE_TITLE } from "@/lib/lore";
-import { ORDER_TABARD } from "@/lib/tabard/config";
+import { DEFAULT_TABARD, ORDER_TABARD } from "@/lib/tabard/config";
 
 export type GuildPreset = "order" | "standard";
-
-type RankTemplate = { name: string; description: string; tier: RankTier; insignia: Insignia; inGame: boolean };
 
 /** The Order of Saint Michael's ranks, modelled on a religious house. */
 export const DEFAULT_RANKS: RankTemplate[] = [
@@ -26,14 +23,7 @@ export const DEFAULT_RANKS: RankTemplate[] = [
 ];
 
 /** Neutral ranks for guilds created on Guildbook. Officers rename them freely. */
-export const STANDARD_RANKS: RankTemplate[] = [
-  { name: "Guild Master", description: "Guild leader", tier: "admin", insignia: "banner", inGame: true },
-  { name: "Officer", description: "Runs raids, recruiting and the guild bank", tier: "officer", insignia: "laurel", inGame: true },
-  { name: "Raider", description: "Core raider", tier: "raider", insignia: "helm", inGame: true },
-  { name: "Member", description: "Member, social or leveling", tier: "member", insignia: "chevron", inGame: true },
-  { name: "Trial", description: "Trial member", tier: "member", insignia: "chevron", inGame: true },
-  { name: "Applicant", description: "Applicant on the website; not a guild rank in game", tier: "applicant", insignia: "candle", inGame: false },
-];
+export const STANDARD_RANKS: readonly RankTemplate[] = RANK_PRESETS[DEFAULT_RANK_PRESET].ranks;
 
 export const DEFAULT_CONTENT_PAGES = [
   { slug: "charter", title: "Rules of the Order", sortOrder: 1 },
@@ -43,18 +33,18 @@ export const DEFAULT_CONTENT_PAGES = [
   { slug: LORE_SLUG, title: LORE_TITLE, sortOrder: 5 },
 ] as const;
 
-export const STANDARD_CHARTER_MD = `Welcome to **{name}**. This charter is a starting point: officers can edit it under Admin, then Charter.
+export const STANDARD_CHARTER_MD = `> This is a starter charter for **{name}**. Officers can rewrite it under Admin, then Charter, to say how your guild really works.
 
 ### Our rules
 
 1. **Be kind.** No harassment, slurs or drama in public channels. Treat guildmates, pugs and rivals with respect.
-2. **Keep your word.** If you sign up for a raid, come prepared and on time. If plans change, update your signup.
-3. **Come prepared.** Bring consumables, repair, know the fights and keep your addons updated.
+2. **Keep your word.** If you sign up for an event, come prepared and on time. If plans change, let an officer know.
+3. **Come prepared.** Know what the group needs from you and keep your gear and addons up to date.
 4. **Settle disagreements in private.** Take concerns to an officer, not to guild chat.
 
 ### Ranks
 
-The Guild Master leads the guild. Officers run raids, recruiting and the bank. Raiders form the raiding core, and Members and Trials are growing into their place.`;
+Our ranks, and what each one can do, are listed at the end of this charter.`;
 
 export const STANDARD_LOOT_MD = `Loot serves the guild's progression first.
 
@@ -62,7 +52,9 @@ export const STANDARD_LOOT_MD = `Loot serves the guild's progression first.
 - **Off-spec** rolls happen only after main-spec interest is settled.
 - Items no one needs are **disenchanted** for the guild bank.`;
 
-export const STANDARD_STORY_MD = `## Who we are
+export const STANDARD_STORY_MD = `> This page is a starting point. Officers can replace it under Admin, then Charter.
+
+## Who we are
 
 Tell visitors what the guild is about: how it started, what you value and what a raid night feels like.
 
@@ -74,7 +66,7 @@ Raiding, dungeons, PvP or leveling together: say what the guild focuses on and w
 
 Explain who fits in best, and how to reach an officer on Discord.`;
 
-const STANDARD_CONTENT_PAGES = [
+export const STANDARD_CONTENT_PAGES = [
   { slug: "charter", title: "Guild Charter", sortOrder: 1, bodyMd: STANDARD_CHARTER_MD },
   { slug: "loot-policy", title: "Loot Policy", sortOrder: 2, bodyMd: STANDARD_LOOT_MD },
   { slug: LORE_SLUG, title: "Our Story", sortOrder: 3, bodyMd: STANDARD_STORY_MD },
@@ -88,28 +80,30 @@ const PRESETS = {
     acceptRank: "Squire",
     trialRank: "Novice",
   },
-  standard: {
-    ranks: STANDARD_RANKS,
-    pages: STANDARD_CONTENT_PAGES,
-    applicantRank: "Applicant",
-    acceptRank: "Member",
-    trialRank: "Trial",
-  },
+  standard: { ...RANK_PRESETS[DEFAULT_RANK_PRESET], pages: STANDARD_CONTENT_PAGES },
 } satisfies Record<GuildPreset, unknown>;
+
+/** A starter page's body for this guild, as `createGuildWithDefaults` writes it. */
+export const starterBody = (bodyMd: string, guildName: string) => bodyMd.replaceAll("{name}", guildName);
 
 /** The Order preset keeps the Order's locked crest and theme (see migration 0011_guild_tabard). */
 const ORDER_LOOK = {
   tabardBackground: ORDER_TABARD.background,
   tabardBorder: ORDER_TABARD.border,
   tabardBorderStyle: ORDER_TABARD.borderStyle,
-  tabardEmblem: ORDER_TABARD.emblem,
+  tabardEmblem: "cross-pattee",
   tabardEmblemColor: ORDER_TABARD.emblemColor,
+  tabardEmblemId: null,
   themeBase: "order",
 } as const;
 
+/** Every other guild starts on the default Blizzard emblem (see DEFAULT_TABARD). */
+const NEW_GUILD_LOOK = { tabardEmblemId: DEFAULT_TABARD.emblemId };
+
 /**
  * Creates a guild with a rank ladder, application rank defaults and starter pages. The "order" preset is the
- * Order of Saint Michael's Catholic ranks, prayer and lore; new guilds get the neutral "standard" preset.
+ * Order of Saint Michael's Catholic ranks, prayer and lore; new guilds get the neutral "standard" preset with the
+ * chosen starter ladder. Published unless `publishedAt` is null (guilds founded on the apex start as drafts).
  */
 export async function createGuildWithDefaults(
   db: Db,
@@ -120,17 +114,26 @@ export async function createGuildWithDefaults(
     description?: string;
     timezone?: string;
     realm?: string | null;
+    /** Battle.net region; defaults to the Americas (seeds and the Order). Guilds founded on the apex always choose. */
+    region?: Region;
     faction: Faction;
     ruleset: Ruleset;
     preset?: GuildPreset;
+    rankPreset?: RankPresetKey;
     directoryListed?: boolean;
     createdByUserId?: string | null;
+    publishedAt?: Date | null;
   },
 ) {
-  const preset = PRESETS[input.preset ?? "standard"];
-  const look = input.preset === "order" ? ORDER_LOOK : {};
+  const { rankPreset, publishedAt, region = "us", ...values } = input;
+  const preset =
+    input.preset === "order" ? PRESETS.order : { ...RANK_PRESETS[rankPreset ?? DEFAULT_RANK_PRESET], pages: STANDARD_CONTENT_PAGES };
+  const look = input.preset === "order" ? ORDER_LOOK : NEW_GUILD_LOOK;
   return db.transaction(async (tx) => {
-    const [guild] = await tx.insert(guilds).values({ ...input, ...look }).returning();
+    const [guild] = await tx
+      .insert(guilds)
+      .values({ ...values, region, ...look, publishedAt: publishedAt === undefined ? new Date() : publishedAt })
+      .returning();
     if (!guild) throw new Error("Guild insert failed");
     const rankRows = await tx
       .insert(ranks)
@@ -144,7 +147,7 @@ export async function createGuildWithDefaults(
       .returning();
     await tx
       .insert(contentPages)
-      .values(preset.pages.map((p) => ({ ...p, guildId: guild.id, bodyMd: p.bodyMd.replaceAll("{name}", guild.name) })));
+      .values(preset.pages.map((p) => ({ ...p, guildId: guild.id, bodyMd: starterBody(p.bodyMd, guild.name) })));
     return { guild: updated!, ranks: rankRows, rankId: byName };
   });
 }

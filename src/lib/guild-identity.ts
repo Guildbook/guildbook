@@ -1,11 +1,13 @@
-import { FACTION_LABELS, type Faction, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
 
 /**
- * A guild's identity on Guildbook is (name, faction, ruleset): WoW: Forever has no realms, each ruleset is its own
- * world, and factions can't share a guild, so the same name can exist once per faction and ruleset.
+ * A guild's identity on Guildbook is (name, region, faction, ruleset): Battle.net regions are separate worlds,
+ * WoW: Forever has no realms, each ruleset is its own world, and factions can't share a guild, so the same name can
+ * exist once per region, faction and ruleset.
  */
 export interface GuildIdentity {
   name: string;
+  region: Region;
   faction: Faction;
   ruleset: Ruleset;
 }
@@ -28,8 +30,8 @@ export function sameGuildName(a: string, b: string): boolean {
   return normalizeGuildName(a) === normalizeGuildName(b);
 }
 
-export function describeIdentity(identity: Pick<GuildIdentity, "faction" | "ruleset">): string {
-  return `${FACTION_LABELS[identity.faction]}, ${RULESET_INFO[identity.ruleset].label}`;
+export function describeIdentity(identity: Pick<GuildIdentity, "region" | "faction" | "ruleset">): string {
+  return `${REGION_LABELS[identity.region]}, ${FACTION_LABELS[identity.faction]}, ${RULESET_INFO[identity.ruleset].label}`;
 }
 
 /** Name used for an unverified guild that lost its name to a verified claim: "Name (unverified)", then "(unverified 2)". */

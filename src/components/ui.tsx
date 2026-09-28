@@ -8,8 +8,8 @@ import { characterHref } from "@/lib/paths";
 export function PageHeader({ title, eyebrow, children }: { title: string; eyebrow?: string; children?: ReactNode }) {
   return (
     <header className="mb-6 text-center sm:mb-8">
-      {eyebrow && <p className="mb-1 text-xs tracking-[0.3em] text-gold-dim uppercase">{eyebrow}</p>}
-      <h1 className="text-2xl font-bold text-gold sm:text-4xl">{title}</h1>
+      {eyebrow && <p className="mb-1 text-xs tracking-[0.3em] break-words text-gold-dim uppercase">{eyebrow}</p>}
+      <h1 className="text-2xl font-bold break-words text-gold sm:text-4xl">{title}</h1>
       <hr className="rule-gold mx-auto mt-4 w-40" />
       {children && <div className="mt-4 text-muted">{children}</div>}
     </header>

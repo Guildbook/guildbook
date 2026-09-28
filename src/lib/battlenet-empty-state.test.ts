@@ -73,6 +73,21 @@ describe("emptySnapshotMessage", () => {
     expect(emptySnapshotMessage({ ...base, foreverCharacters: [{ faction: "alliance" }] })).toMatch(/realms/);
   });
 
+  it("mentions the guild's region, and explains Forever characters in the other region", () => {
+    expect(emptySnapshotMessage({ ...base, guildRegion: "us" })).toMatch(/^We found no WoW: Forever characters in the Americas region on Pilgrim#1234\./);
+    expect(emptySnapshotMessage({ ...base, guildRegion: "us", foreverCharacters: [{ faction: "alliance", region: "eu" }] })).toBe(
+      "Your WoW: Forever characters on Pilgrim#1234 are in Europe, but this guild is in the Americas region. " +
+        "Regions are separate worlds, so only Americas characters can join it.",
+    );
+    // Characters from snapshots taken before regions are US.
+    expect(emptySnapshotMessage({ ...base, guildRegion: "eu", foreverCharacters: [{ faction: "alliance" }] })).toMatch(/are in the Americas, but this guild is in the Europe region/);
+    const euDown: BattlenetScan = {
+      ...anniversaryScan,
+      namespaces: [...namespaces.map((n) => ({ ...n, region: "us" as const })), { namespace: "profile-classic1x-eu", region: "eu", status: "error", httpStatus: 503, characters: 0 }],
+    };
+    expect(emptySnapshotMessage({ ...base, guildRegion: "eu", scan: euDown })).toContain("didn't answer for every game in Europe");
+  });
+
   it("asks older links, which have no scan, to refresh", () => {
     expect(emptySnapshotMessage({ ...base, scan: null })).toMatch(/Refresh your characters or reconnect/);
   });

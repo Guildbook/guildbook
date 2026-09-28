@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RANK_TIERS } from "@/lib/authz/tiers";
 import { SLUG_MAX, SLUG_MIN, type SlugProblem, slugProblem } from "@/lib/hosts";
 import { INSIGNIA } from "@/lib/insignia";
+import { DEFAULT_RANK_PRESET, RANK_PRESET_KEYS } from "@/lib/rank-presets";
 import { LOOT_RESPONSES, MAX_IMPORT_BYTES, NO_RECIPIENT_RESPONSES } from "@/lib/loot/constants";
 import {
   CLASSES,
@@ -10,6 +11,7 @@ import {
   MAX_LEVEL,
   MAX_PROFESSION_SKILL,
   PROFESSIONS,
+  REGIONS,
   ROLES,
   RULESETS,
   WOWF_LAUNCH_DATE,
@@ -61,20 +63,25 @@ function refineSpec<T extends { wowClass: (typeof CLASSES)[number]; spec: string
 
 // --- Applications ----------------------------------------------------------
 
-export const applicationInput = z
-  .object({
-    characterName,
-    characterSurname,
-    ...classSpecShape,
-    level,
-    raidExperience: required("Raid experience", 2000),
-    availability: required("Availability", 1000),
-    whyThisGuild: required("This answer", 2000),
-    discordHandle: required("Discord handle", 64),
-    respectsFaith: checkbox.refine((v) => v, "You must agree to respect the faith and the charter"),
-  })
-  .superRefine(refineSpec);
-export type ApplicationInput = z.infer<typeof applicationInput>;
+/** The Order's pledge also asks applicants to respect its faith; other guilds only ask them to keep the charter. */
+export const applicationInputFor = (guild: { preset: string }) =>
+  z
+    .object({
+      characterName,
+      characterSurname,
+      ...classSpecShape,
+      level,
+      raidExperience: required("Raid experience", 2000),
+      availability: required("Availability", 1000),
+      whyThisGuild: required("This answer", 2000),
+      discordHandle: required("Discord handle", 64),
+      respectsFaith: checkbox.refine(
+        (v) => v,
+        guild.preset === "order" ? "You must agree to respect the faith and the charter" : "You must agree to keep the charter",
+      ),
+    })
+    .superRefine(refineSpec);
+export type ApplicationInput = z.infer<ReturnType<typeof applicationInputFor>>;
 
 export const applicationDecision = z.object({
   applicationId: uuid,
@@ -171,12 +178,14 @@ const timezone = z.string().refine((tz) => {
 const guildName = (max: number) => required("Name", max).transform(cleanGuildName).pipe(z.string().min(1, "Name is required"));
 const guildFaction = z.enum(FACTIONS, "Choose your guild's faction");
 const guildRuleset = z.enum(RULESETS, "Choose your guild's ruleset");
+const guildRegion = z.enum(REGIONS, "Choose your guild's region");
 
 export const guildSettingsInput = z.object({
   name: guildName(80),
   motto: optionalText(120),
   description: trimmed(2000).default(""),
   timezone,
+  region: guildRegion,
   faction: guildFaction,
   ruleset: guildRuleset,
   discordInviteUrl,
@@ -205,11 +214,13 @@ export const guildSlug = z
 export const createGuildInput = z.object({
   name: guildName(60),
   slug: guildSlug,
+  region: guildRegion,
   faction: guildFaction,
   ruleset: guildRuleset,
   timezone,
   motto: optionalText(120),
   directoryListed: checkbox,
+  rankPreset: z.enum(RANK_PRESET_KEYS).catch(DEFAULT_RANK_PRESET),
 });
 
 /** A bare hostname such as `orderofsaintmichael.org` or `www.example.com`; a pasted URL is reduced to its host. */

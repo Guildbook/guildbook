@@ -61,8 +61,8 @@ const exampleLook = (tabard: TabardConfig, base: SelectableBase): LookColumns =>
   tabardBackground: tabard.background,
   tabardBorder: tabard.border,
   tabardBorderStyle: tabard.borderStyle,
-  tabardEmblem: tabard.emblem,
   tabardEmblemColor: tabard.emblemColor,
+  tabardEmblemId: tabard.emblemId,
   themeBase: base,
   themeOverrides: {},
 });
@@ -75,7 +75,7 @@ export function exampleSites(domain: string): PreviewSite[] {
       name: "Wardens of the Greenwood",
       motto: "Root and branch",
       address: `greenwood.${domain}`,
-      look: exampleLook({ background: 25, border: 14, borderStyle: "double", emblem: "wolf", emblemColor: 15 }, "parchment"),
+      look: exampleLook({ background: 25, border: 14, borderStyle: "double", emblemColor: 15, emblemId: 193 }, "parchment"),
       recruitmentOpen: true,
       timezone: "America/Los_Angeles",
       slots: [
@@ -91,7 +91,7 @@ export function exampleSites(domain: string): PreviewSite[] {
       name: "Emberfall",
       motto: "From ash, iron",
       address: `emberfall.${domain}`,
-      look: exampleLook({ background: 5, border: 3, borderStyle: "studded", emblem: "flame", emblemColor: 3 }, "modern"),
+      look: exampleLook({ background: 5, border: 3, borderStyle: "studded", emblemColor: 3, emblemId: 21 }, "modern"),
       recruitmentOpen: true,
       timezone: "America/Chicago",
       slots: [

@@ -19,6 +19,7 @@
     "db:bootstrap": "tsx scripts/bootstrap.ts",
     "guild:grant-owner": "tsx scripts/grant-owner.ts",
     "brand:assets": "tsx scripts/brand-assets.ts",
+    "emblems:fetch": "tsx scripts/emblems-fetch.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
@@ -53,6 +54,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",

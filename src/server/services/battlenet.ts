@@ -7,9 +7,9 @@ import { CLASS_INFO, fullName, isValidSpec } from "@/lib/game";
 import { importCharacterInput } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { type BlizzardClient, describeScanForLog, type RosterMember } from "@/server/blizzard/client";
-import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard/config";
+import { battlenetEnabled, blizzardConfigFromEnv, realmSlugsFor } from "@/server/blizzard/config";
 import { decryptToken, encryptToken } from "@/server/blizzard/crypto";
-import { charactersForGuild } from "@/server/blizzard/filter";
+import { charactersForGuild, snapshotRegion } from "@/server/blizzard/filter";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
 
@@ -19,8 +19,9 @@ export interface BattlenetDeps {
   tokenKey: Buffer;
 }
 
-/** Which snapshot characters a guild accepts beyond its faction. */
+/** Which snapshot characters a guild accepts beyond its region, faction and ruleset. */
 export interface Eligibility {
+  /** BATTLENET_REALMS entries: `slug` (every region) or `region:slug`. */
   realmSlugs: readonly string[];
 }
 
@@ -171,14 +172,18 @@ export async function unlinkBattlenet(db: Db, actor: Actor) {
   });
 }
 
-/** The viewer's link and the snapshot characters this guild accepts (its faction and configured realms). */
+/** The viewer's link and the snapshot characters this guild accepts (its region, faction, ruleset and configured realms). */
 export async function getEligibleCharacters(db: Db, actor: Actor, eligibility: Eligibility = defaultEligibility()) {
   assertCan(actor, "battlenet.link");
   const link = await getBattlenetLink(db, actor.userId);
   if (!link) return { link: null, characters: [] as BattlenetCharacterSnapshot[] };
-  const [guild] = await db.select({ faction: guilds.faction, ruleset: guilds.ruleset }).from(guilds).where(eq(guilds.id, actor.guildId));
+  const [guild] = await db
+    .select({ region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
+    .from(guilds)
+    .where(eq(guilds.id, actor.guildId));
   if (!guild) throw new NotFoundError("Guild");
-  return { link, characters: charactersForGuild(link.characters, { ...guild, realmSlugs: eligibility.realmSlugs }) };
+  const realmSlugs = realmSlugsFor(eligibility, guild.region);
+  return { link, characters: charactersForGuild(link.characters, { ...guild, realmSlugs }) };
 }
 
 /**
@@ -265,6 +270,7 @@ export async function importBattlenetCharacter(
         role: input.role,
         verified: true,
         bnetCharacterId: bnet.id,
+        region: snapshotRegion(bnet),
         realmSlug: bnet.realmSlug,
         realmName: bnet.realmName,
         syncedAt: link.snapshotAt,
@@ -313,9 +319,10 @@ export interface SyncSummary {
 }
 
 /**
- * Refreshes level (and class) of a guild's verified characters with an app token: one guild-roster request
- * when BATTLENET_GUILD_REALM/SLUG are set, then public profile lookups for anyone not on it. A character whose
- * Blizzard ID no longer matches (deleted, renamed, transferred) counts as missing and is left untouched.
+ * Refreshes level (and class) of a guild's verified characters with an app token, in the guild's region: one
+ * guild-roster request when BATTLENET_GUILD_REALM/SLUG are set and the guild is in BATTLENET_GUILD_REGION, then public
+ * profile lookups for anyone not on it. A character whose Blizzard ID no longer matches (deleted, renamed,
+ * transferred) counts as missing and is left untouched.
  */
 export async function runGuildCharacterSync(
   db: Db,
@@ -336,11 +343,13 @@ export async function runGuildCharacterSync(
       ),
     )
     .orderBy(asc(characters.name));
+  const [guild] = await db.select({ region: guilds.region }).from(guilds).where(eq(guilds.id, guildId));
+  const region = guild?.region ?? "us";
 
-  const { guildRealmSlug, guildSlug } = client.config;
+  const { guildRealmSlug, guildSlug, guildRegion } = client.config;
   let roster: Map<string, RosterMember> | null = null;
-  if (rows.length > 0 && guildRealmSlug && guildSlug) {
-    const members = await client.getGuildRoster(guildRealmSlug, guildSlug).catch(() => null);
+  if (rows.length > 0 && guildRealmSlug && guildSlug && guildRegion === region) {
+    const members = await client.getGuildRoster(region, guildRealmSlug, guildSlug).catch(() => null);
     if (members) roster = new Map(members.map((m) => [m.id, m]));
   }
 
@@ -348,7 +357,7 @@ export async function runGuildCharacterSync(
   for (const row of rows) {
     const fromRoster = roster?.get(row.bnetCharacterId!);
     const found =
-      fromRoster ?? (await client.getCharacterProfile(row.realmSlug!, row.name).catch(() => null));
+      fromRoster ?? (await client.getCharacterProfile(row.region ?? region, row.realmSlug!, row.name).catch(() => null));
     if (!found || found.id !== row.bnetCharacterId || found.level < 1 || found.level > 100) {
       summary.missing++;
       continue;

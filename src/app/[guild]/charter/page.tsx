@@ -4,7 +4,8 @@ import { RankInsignia } from "@/components/rank-insignia";
 import { PageHeader } from "@/components/ui";
 import { db } from "@/db";
 import { TIER_LABELS } from "@/lib/authz/tiers";
-import { INSIGNIA_INFO, insigniaFor } from "@/lib/insignia";
+import { guildWording } from "@/lib/guild-wording";
+import { insigniaFor, insigniaMeaning } from "@/lib/insignia";
 import { LORE_SLUG } from "@/lib/lore";
 import { getGuild } from "@/server/context";
 import { guildSocialMetadata } from "@/server/guild-metadata";
@@ -46,8 +47,8 @@ export default async function CharterPage({ params }: PageProps<"/[guild]/charte
         ))}
         {ranks.length > 0 && (
           <section id="ranks" className="panel scroll-mt-20 p-5 sm:p-8" aria-labelledby="ranks-heading">
-            <h2 id="ranks-heading" className="text-center text-xl font-bold text-gold sm:text-2xl">
-              Ranks of the Order
+            <h2 id="ranks-heading" className="text-center text-xl font-bold break-words text-gold sm:text-2xl">
+              {guildWording(guild).ranksHeading}
             </h2>
             <hr className="rule-gold mx-auto my-3 w-32" />
             <ol className="grid gap-4 sm:grid-cols-2">
@@ -60,7 +61,7 @@ export default async function CharterPage({ params }: PageProps<"/[guild]/charte
                       <h3 className="font-display text-lg text-gold">{r.name}</h3>
                       <p className="text-xs tracking-wider text-gold-dim uppercase">{TIER_LABELS[r.tier]}</p>
                       {r.description && <p className="mt-1 text-sm text-bone">{r.description}</p>}
-                      <p className="mt-1 text-xs text-muted italic">{INSIGNIA_INFO[insignia].meaning}</p>
+                      <p className="mt-1 text-xs text-muted italic">{insigniaMeaning(insignia, guild)}</p>
                     </div>
                   </li>
                 );

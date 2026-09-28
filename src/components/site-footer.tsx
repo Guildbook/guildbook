@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { FactionIcon } from "@/components/faction-icon";
 import { GitHubIcon } from "@/components/github-icon";
 import { GuildEmblem } from "@/components/guild-emblem";
+import { RegionIcon } from "@/components/region";
 import { RulesetIcon } from "@/components/ruleset";
 import { VerifiedSeal } from "@/components/verified-seal";
 import { XIcon } from "@/components/x-icon";
@@ -10,7 +11,7 @@ import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
 import { SOURCE_URL, X_URL } from "@/lib/brand";
 import { formatClock, timezoneAbbrev } from "@/lib/format";
-import { DAYS_OF_WEEK, FACTION_LABELS, RULESET_INFO } from "@/lib/game";
+import { DAYS_OF_WEEK, FACTION_LABELS, REGION_LABELS, RULESET_INFO } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { type Guild, offersApply, type Viewer } from "@/server/context";
 import { getRequestHost } from "@/server/hosts";
@@ -85,6 +86,13 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
           )}
           <dl className="mt-4 space-y-1 text-xs text-muted">
             <div>
+              <dt className="inline text-gold-dim">Region </dt>
+              <dd className="inline-flex items-center gap-1 align-middle" data-testid="footer-region">
+                <RegionIcon size={13} className="text-gold-dim" />
+                {REGION_LABELS[guild.region]}
+              </dd>
+            </div>
+            <div>
               <dt className="inline text-gold-dim">Faction </dt>
               <dd className="inline-flex items-center gap-1 align-middle">
                 <FactionIcon faction={guild.faction} size={14} decorative />
@@ -103,20 +111,26 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
 
         <section className="flex flex-col items-center text-center sm:items-start sm:text-left">
           <FooterHeading>{order ? "Join the Order" : "Join us"}</FooterHeading>
-          <p className="text-sm text-muted">
-            Recruitment is{" "}
-            <strong className={guild.recruitmentOpen ? "text-gold" : "text-bone"}>
-              {guild.recruitmentOpen ? "open" : "closed"}
-            </strong>
-            .{" "}
-            {guild.recruitmentOpen
-              ? order
-                ? "Every player who respects the faith is welcome to apply."
-                : "Read the charter and apply on this site."
-              : "Social members are always welcome to reach out."}
-          </p>
+          {guild.publishedAt ? (
+            <p className="text-sm text-muted">
+              Recruitment is{" "}
+              <strong className={guild.recruitmentOpen ? "text-gold" : "text-bone"}>
+                {guild.recruitmentOpen ? "open" : "closed"}
+              </strong>
+              .{" "}
+              {guild.recruitmentOpen
+                ? order
+                  ? "Every player who respects the faith is welcome to apply."
+                  : "Read the charter and apply on this site."
+                : "Social members are always welcome to reach out."}
+            </p>
+          ) : (
+            <p className="text-sm text-muted" data-testid="footer-opening-soon">
+              <strong className="text-bone">Opening soon.</strong> Applications open once the guild is published.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
-            {offersApply(viewer) && guild.recruitmentOpen && (
+            {offersApply(viewer, guild) && guild.recruitmentOpen && (
               <Link href={h("/apply")} className="btn btn-primary btn-sm">
                 Apply
               </Link>

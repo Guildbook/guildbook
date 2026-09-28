@@ -4,7 +4,15 @@ import { auditLog, contentPages, guilds, memberships, ranks, users } from "@/db/
 import type { Db } from "@/db/types";
 import { resolveTier } from "@/lib/authz/policy";
 import { DomainError } from "@/server/errors";
-import { checkSlugAvailability, createGuildForUser, listDirectoryGuilds, listUserGuilds } from "@/server/services/platform";
+import { actionError } from "@/server/action-error";
+import {
+  checkSlugAvailability,
+  createGuildForUser,
+  creationLimitsFromEnv,
+  listDirectoryGuilds,
+  listUserGuilds,
+} from "@/server/services/platform";
+import { deleteGuild } from "@/server/services/account";
 import { updateGuildSettings } from "@/server/services/ranks";
 import { createGuild, createMember, createTestDb } from "../support/db";
 
@@ -20,7 +28,7 @@ async function newUser() {
 }
 
 function form(slug: string, extra: Record<string, string> = {}) {
-  return { name: `Guild ${slug}`, slug, faction: "alliance", ruleset: "normal", timezone: "America/New_York", motto: "", ...extra };
+  return { name: `Guild ${slug}`, slug, region: "us", faction: "alliance", ruleset: "normal", timezone: "America/New_York", motto: "", ...extra };
 }
 
 beforeAll(async () => {
@@ -76,7 +84,7 @@ describe("createGuildForUser", () => {
     await expect(createGuildForUser(db, other.id, form("taken-slug"), limits)).rejects.toThrow(DomainError);
     await expect(createGuildForUser(db, other.id, form("taken-slug"), limits)).rejects.toThrow("That subdomain is taken");
 
-    expect(await checkSlugAvailability(db, "taken-slug")).toEqual({ available: false, reason: "That subdomain is taken" });
+    expect(await checkSlugAvailability(db, "taken-slug")).toEqual({ available: false, reason: "That subdomain is taken", suggestions: ["taken-slug-2"] });
     expect(await checkSlugAvailability(db, "www")).toMatchObject({ available: false });
     expect(await checkSlugAvailability(db, "free-slug")).toEqual({ available: true });
   });
@@ -91,8 +99,46 @@ describe("createGuildForUser", () => {
     // createdAt is set by the database, so the rolling-day check uses the real clock; move past it.
     const later = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     await createGuildForUser(db, user.id, form("limit-c"), limits, later);
-    await expect(createGuildForUser(db, user.id, form("limit-d"), limits, new Date(later.getTime() + 2 * 24 * 60 * 60 * 1000))).rejects.toThrow(/up to 3/);
+    await expect(createGuildForUser(db, user.id, form("limit-d"), limits, new Date(later.getTime() + 2 * 24 * 60 * 60 * 1000))).rejects.toThrow(/up to 3 guilds/);
     expect(await db.select().from(guilds).where(eq(guilds.slug, "limit-d"))).toHaveLength(0);
+  });
+
+  it("caps guilds owned per account, explains how to get more, and frees a slot when a guild is deleted", async () => {
+    const user = await newUser();
+    const cap = { perUser: 2, perDay: 50 };
+    const { guild: alpha } = await createGuildForUser(db, user.id, form("cap-a", { name: "Cap Alpha" }), cap);
+    await createGuildForUser(db, user.id, form("cap-b", { name: "Cap Beta" }), cap);
+    const err = await createGuildForUser(db, user.id, form("cap-c"), cap).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DomainError);
+    expect((err as Error).message).toMatch(/Each account can own up to 2 guilds\. You own Cap Alpha, Cap Beta\./);
+    expect((err as Error).message).toMatch(/Delete a guild you no longer need.*email .+@.+ with your Discord username/);
+
+    // Deleting a guild removes it, so the slot is free again.
+    const [m] = await db.select({ id: memberships.id }).from(memberships).where(eq(memberships.guildId, alpha.id));
+    await deleteGuild(db, { guildId: alpha.id, userId: user.id, membershipId: m!.id, tier: "admin" }, "Cap Alpha");
+    await expect(createGuildForUser(db, user.id, form("cap-c"), cap)).resolves.toBeTruthy();
+  });
+
+  it("exempts platform admins and honours per-user overrides", async () => {
+    const admin = await newUser();
+    const raised = await newUser();
+    const cap = { perUser: 1, perDay: 50, exemptDiscordIds: new Set([admin.discordId!]), overrides: { [raised.discordId!]: 2 } };
+    for (const slug of ["admin-a", "admin-b", "admin-c"]) await createGuildForUser(db, admin.id, form(slug), cap);
+    await createGuildForUser(db, raised.id, form("raised-a"), cap);
+    await createGuildForUser(db, raised.id, form("raised-b"), cap);
+    await expect(createGuildForUser(db, raised.id, form("raised-c"), cap)).rejects.toThrow(/up to 2 guilds/);
+  });
+
+  it("reads limits from the environment", () => {
+    expect(creationLimitsFromEnv({})).toMatchObject({ perUser: 3, perDay: 2, overrides: {} });
+    const env = creationLimitsFromEnv({
+      GUILD_CREATE_LIMIT: "5",
+      PLATFORM_ADMIN_DISCORD_IDS: " 111, 222 ",
+      GUILD_CREATE_LIMIT_OVERRIDES: "333:10, bad, 444:x, 555:0",
+    });
+    expect(env.perUser).toBe(5);
+    expect([...env.exemptDiscordIds!]).toEqual(["111", "222"]);
+    expect(env.overrides).toEqual({ "333": 10, "555": 0 });
   });
 
   it("lists a user's guilds and the opt-in directory", async () => {
@@ -104,6 +150,10 @@ describe("createGuildForUser", () => {
     expect(mine.map((g) => g.slug).sort()).toEqual(["hidden-one", "listed-one"]);
     expect(mine[0]).toMatchObject({ rankName: "Guild Master", rankTier: "admin", status: "active", customDomain: null, main: null });
 
+    // New guilds are drafts: out of the directory until published, even when listed.
+    expect((await listDirectoryGuilds(db)).map((g) => g.slug)).not.toContain("listed-one");
+    await db.update(guilds).set({ publishedAt: new Date() }).where(inArray(guilds.slug, ["listed-one", "hidden-one"]));
+
     const directory = await listDirectoryGuilds(db);
     const slugs = directory.map((g) => g.slug);
     expect(slugs).toContain("listed-one");
@@ -112,25 +162,29 @@ describe("createGuildForUser", () => {
   });
 });
 
-describe("one faction and one ruleset per guild", () => {
-  it("requires a faction and a ruleset at creation", async () => {
+describe("one region, one faction and one ruleset per guild", () => {
+  it("requires a region, a faction and a ruleset at creation", async () => {
     const user = await newUser();
+    await expect(createGuildForUser(db, user.id, form("no-region", { region: "" }), limits)).rejects.toThrow(/region/);
+    await expect(createGuildForUser(db, user.id, form("kr-region", { region: "kr" }), limits)).rejects.toThrow(/region/);
     await expect(createGuildForUser(db, user.id, form("no-faction", { faction: "" }), limits)).rejects.toThrow(/faction/);
     await expect(createGuildForUser(db, user.id, form("both-factions", { faction: "both" }), limits)).rejects.toThrow(/faction/);
     await expect(createGuildForUser(db, user.id, form("no-ruleset", { ruleset: "" }), limits)).rejects.toThrow(/ruleset/);
     const { guild } = await createGuildForUser(db, user.id, form("pvp-guild", { faction: "horde", ruleset: "pvp" }), limits);
-    expect(guild).toMatchObject({ faction: "horde", ruleset: "pvp" });
+    expect(guild).toMatchObject({ region: "us", faction: "horde", ruleset: "pvp" });
+    const eu = await createGuildForUser(db, user.id, form("eu-guild", { region: "eu" }), limits);
+    expect(eu.guild.region).toBe("eu");
   });
 });
 
 describe("guild identity uniqueness", () => {
-  it("allows one guild per name, faction and ruleset, case-insensitively", async () => {
+  it("allows one guild per name, region, faction and ruleset, case-insensitively", async () => {
     const user = await newUser();
     await createGuildForUser(db, user.id, form("iron-oath", { name: "Iron Oath" }), limits);
 
     const other = await newUser();
     await expect(createGuildForUser(db, other.id, form("iron-oath-2", { name: "iron  OATH " }), limits)).rejects.toThrow(
-      "A guild called Iron Oath (Alliance, Normal) is already on Guildbook",
+      "A guild called Iron Oath (Americas, Alliance, Normal) is already on Guildbook",
     );
     expect(await db.select().from(guilds).where(eq(guilds.slug, "iron-oath-2"))).toHaveLength(0);
 
@@ -138,24 +192,38 @@ describe("guild identity uniqueness", () => {
     expect(horde.guild.name).toBe("Iron Oath");
     const pvp = await createGuildForUser(db, other.id, form("iron-oath-pvp", { name: "Iron Oath", ruleset: "pvp" }), limits);
     expect(pvp.guild.name).toBe("Iron Oath");
+    const third = await newUser();
+    const eu = await createGuildForUser(db, third.id, form("iron-oath-eu", { name: "Iron Oath", region: "eu" }), limits);
+    expect(eu.guild).toMatchObject({ name: "Iron Oath", region: "eu" });
+    await expect(createGuildForUser(db, user.id, form("iron-oath-eu-2", { name: "IRON OATH", region: "eu" }), limits)).rejects.toThrow(
+      "A guild called Iron Oath (Europe, Alliance, Normal) is already on Guildbook",
+    );
+  });
+
+  it("enforces per-region uniqueness in the database too", async () => {
+    await createGuild(db, { name: "Twin Keep", region: "us" });
+    await createGuild(db, { name: "Twin Keep", region: "eu" });
+    await expect(createGuild(db, { name: "twin keep", region: "eu" })).rejects.toThrow();
   });
 
   it("refuses a rename or identity change onto another guild's identity", async () => {
     const taken = await createGuild(db, { name: "Crimson Vow", faction: "horde", ruleset: "rp" });
     const mover = await createGuild(db, { name: "Crimson Vow", faction: "alliance", ruleset: "rp" });
     const gm = await createMember(db, mover, "Grand Master");
-    const settings = { name: "Crimson Vow", timezone: "America/New_York", faction: "horde", ruleset: "rp" };
-    await expect(updateGuildSettings(db, gm, settings)).rejects.toThrow(/Crimson Vow \(Horde, Roleplaying\) is already on Guildbook/);
+    const settings = { name: "Crimson Vow", timezone: "America/New_York", region: "us", faction: "horde", ruleset: "rp" };
+    await expect(updateGuildSettings(db, gm, settings)).rejects.toThrow(/Crimson Vow \(Americas, Horde, Roleplaying\) is already on Guildbook/);
     const [row] = await db.select().from(guilds).where(eq(guilds.id, mover.guild.id));
     expect(row).toMatchObject({ faction: "alliance", ruleset: "rp" });
 
     await expect(updateGuildSettings(db, gm, { ...settings, name: "CRIMSON VOW", faction: "alliance" })).resolves.toMatchObject({ unverified: false });
+    await expect(updateGuildSettings(db, gm, { ...settings, region: "eu" })).resolves.toMatchObject({ unverified: false });
+    expect((await db.select().from(guilds).where(eq(guilds.id, mover.guild.id)))[0]).toMatchObject({ region: "eu", faction: "horde" });
     expect(taken.guild.id).not.toBe(mover.guild.id);
   });
 });
 
 describe("directory", () => {
-  it("filters by faction and ruleset and lists verified guilds first", async () => {
+  it("filters by region, faction and ruleset and lists verified guilds first", async () => {
     const big = await createGuild(db, { slug: "dir-big", faction: "horde", ruleset: "pvp" });
     const small = await createGuild(db, { slug: "dir-small", faction: "horde", ruleset: "pvp" });
     await db.update(guilds).set({ directoryListed: true }).where(inArray(guilds.id, [big.guild.id, small.guild.id]));
@@ -168,5 +236,59 @@ describe("directory", () => {
     expect(pvpHorde[0]!.verifiedAt).toBeInstanceOf(Date);
     expect((await listDirectoryGuilds(db, { ruleset: "rp" })).map((g) => g.slug)).not.toContain("dir-big");
     expect((await listDirectoryGuilds(db, { faction: "alliance" })).map((g) => g.slug)).not.toContain("dir-small");
+
+    const europe = await createGuild(db, { slug: "dir-europe", region: "eu", faction: "horde", ruleset: "pvp" });
+    await db.update(guilds).set({ directoryListed: true }).where(eq(guilds.id, europe.guild.id));
+    expect((await listDirectoryGuilds(db, { region: "eu" })).map((g) => g.slug)).toEqual(["dir-europe"]);
+    const americas = (await listDirectoryGuilds(db, { region: "us", faction: "horde", ruleset: "pvp" })).map((g) => g.slug);
+    expect(americas).toEqual(["dir-small", "dir-big"]);
+    expect((await listDirectoryGuilds(db, { faction: "horde", ruleset: "pvp" }))[0]).toHaveProperty("region");
+  });
+});
+
+describe("subdomain suggestions", () => {
+  it("suggests subdomains that name what sets a new guild apart from the holder", async () => {
+    const user = await newUser();
+    await createGuildForUser(db, user.id, form("oathbound", { name: "Oathbound" }), limits);
+
+    expect(await checkSlugAvailability(db, "oathbound", { region: "eu", faction: "horde", ruleset: "pvp" })).toEqual({
+      available: false,
+      reason: "That subdomain is taken",
+      suggestions: ["oathbound-pvp", "oathbound-horde", "oathbound-eu"],
+    });
+    expect((await checkSlugAvailability(db, "oathbound", { region: "us", faction: "alliance", ruleset: "hardcore" })).available).toBe(false);
+    expect(await checkSlugAvailability(db, "oathbound", { region: "us", faction: "alliance", ruleset: "hardcore" })).toMatchObject({
+      suggestions: ["oathbound-hc"],
+    });
+    expect(await checkSlugAvailability(db, "oathbound", { ruleset: "rp" })).toMatchObject({ suggestions: ["oathbound-rp"] });
+
+    // Taken differentiators are skipped; when all are taken, a numbered slug is the fallback.
+    const other = await newUser();
+    await createGuildForUser(db, other.id, form("oathbound-rp", { name: "Oathbound RP" }), limits);
+    expect(await checkSlugAvailability(db, "oathbound", { ruleset: "rp", faction: "horde" })).toMatchObject({ suggestions: ["oathbound-horde"] });
+    expect(await checkSlugAvailability(db, "oathbound", { ruleset: "rp" })).toMatchObject({ suggestions: ["oathbound-2"] });
+    // Nothing sets an identical guild apart.
+    expect(await checkSlugAvailability(db, "oathbound", { region: "us", faction: "alliance", ruleset: "normal" })).toMatchObject({
+      suggestions: ["oathbound-2"],
+    });
+  });
+
+  it("points a taken subdomain at the slug field with suggestions when creating", async () => {
+    const user = await newUser();
+    await createGuildForUser(db, user.id, form("dawnguard", { name: "Dawnguard" }), limits);
+    const other = await newUser();
+    const err = await createGuildForUser(db, other.id, form("dawnguard", { name: "Dawnguard", faction: "horde" }), limits).catch((e: unknown) => e);
+    expect(actionError(err)).toEqual({
+      ok: false,
+      error: "Please fix these fields:",
+      fieldErrors: { slug: ["That subdomain is taken"] },
+      suggestions: { slug: ["dawnguard-horde"] },
+    });
+  });
+
+  it("reports validation failures per field, including fields a form might not render", async () => {
+    const user = await newUser();
+    const err = await createGuildForUser(db, user.id, form("no-region-field", { region: "" }), limits).catch((e: unknown) => e);
+    expect(actionError(err)).toMatchObject({ ok: false, error: "Please fix these fields:", fieldErrors: { region: ["Choose your guild's region"] } });
   });
 });

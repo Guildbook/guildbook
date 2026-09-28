@@ -105,9 +105,12 @@ export const getViewer = cache(async (guildId: string): Promise<Viewer> => {
   };
 });
 
-/** Whether nav should offer "Apply": signed-out visitors and non-members without a pending application. */
-export function offersApply(viewer: Viewer): boolean {
-  return viewer.membershipStatus !== "active" && viewer.membershipStatus !== "applicant";
+/**
+ * Whether nav should offer "Apply": signed-out visitors and non-members without a pending application,
+ * on published guilds. Draft guilds only take applications through a private invite link.
+ */
+export function offersApply(viewer: Viewer, guild: { publishedAt: Date | null }): boolean {
+  return !!guild.publishedAt && viewer.membershipStatus !== "active" && viewer.membershipStatus !== "applicant";
 }
 
 /** For pages: resolve guild + viewer and redirect away if the viewer may not perform `action`. */

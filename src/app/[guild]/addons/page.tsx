@@ -5,6 +5,7 @@ import { Markdown } from "@/components/markdown";
 import { EmptyState, PageHeader, Panel, StatusPill } from "@/components/ui";
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
+import { guildWording } from "@/lib/guild-wording";
 import { guildHref } from "@/lib/paths";
 import { getGuild, getViewer } from "@/server/context";
 import { listAddons } from "@/server/services/content";
@@ -16,11 +17,12 @@ export default async function AddonsPage({ params }: PageProps<"/[guild]/addons"
   const guild = await getGuild(slug);
   const [addonList, viewer] = await Promise.all([listAddons(db, guild.id), getViewer(guild.id)]);
   const vigilOpen = can(viewer.actor, "vigil.use");
+  const wording = guildWording(guild);
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Addons of the Order" eyebrow="Built by our members">
-        Custom tools our members write to help the Order prepare, execute and improve.
+      <PageHeader title={wording.addonsTitle} eyebrow="Built by our members">
+        {wording.addonsIntro}
       </PageHeader>
       {addonList.length === 0 && <EmptyState>The workshop is quiet for now.</EmptyState>}
       <div className="space-y-4">

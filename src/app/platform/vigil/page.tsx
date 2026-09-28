@@ -20,7 +20,10 @@ import {
 } from "@/lib/vigil/companion-release";
 import { latestCompanionRelease } from "@/server/companion-release";
 import { FEATURE_ICONS, type FeatureIcon } from "../feature-icons";
-import { AppWindowMock } from "./app-window-mock";
+import { AppScreenshot } from "./app-screenshot";
+import detailShot from "./shots/detail.webp";
+import intelShot from "./shots/intel.webp";
+import liveShot from "./shots/live.webp";
 
 const TITLE = "Vigil, the combat log companion";
 const DESCRIPTION =
@@ -165,34 +168,34 @@ const STEPS: { title: string; body: ReactNode }[] = [
 
 const FEATURES: { icon: FeatureIcon; title: string; body: string }[] = [
   {
-    icon: "upload",
-    title: "Uploads on its own",
-    body: "Each finished fight goes to Vigil on your guild's site, retried if your connection drops. You choose who sees it: just you, your officers or the whole guild.",
-  },
-  {
     icon: "callouts",
     title: "Callouts as you play",
-    body: "Missed procs, idle time, dropped buffs and capped rage show up the moment they happen, alongside a live score, GCD use and uptimes.",
+    body: "Missed procs, idle time, dropped buffs and capped rage show up the moment they happen, alongside a live score, GCD use and uptimes marked with their spell icons.",
+  },
+  {
+    icon: "intel",
+    title: "Boss Intel",
+    body: "Molten Core and Onyxia's Lair, ability by ability: what each one does and what to do about it, with Blizzard's spell icons and boss portraits, plus what Vigil saw in your pull.",
   },
   {
     icon: "reports",
-    title: "Boss by boss reviews",
-    body: "Every pull becomes a report: score, rotation priority, uptimes and cooldowns, a timeline and an estimate of what perfect timing would have done.",
+    title: "The whole raid at a glance",
+    body: "A damage and healing meter for your party or raid with class icons, every death with its killing blow, and the damage each boss ability did and who it hit.",
+  },
+  {
+    icon: "upload",
+    title: "Every pull, reviewed",
+    body: "Each finished fight uploads to your guild's site, retried if your connection drops, and becomes a report with rotation priority, uptimes, cooldowns and a timeline. You choose who sees it.",
   },
   {
     icon: "window",
     title: "Made for a second screen",
-    body: "A slim window beside the game, or a compact view you can pin on top. It stays out of the way until something needs your attention.",
+    body: "A slim window beside the game or a compact view pinned on top. Close it and Vigil keeps uploading from the menu bar or system tray, where you can pause uploads or open your guild's site.",
   },
   {
     icon: "privacy",
     title: "Reads the log, nothing else",
-    body: "Vigil never touches the game client. Fights are analysed on your computer and only the report is sent. Your pairing is kept in the system keychain.",
-  },
-  {
-    icon: "source",
-    title: "Free and open source",
-    body: "Vigil is free and licensed under the AGPL-3.0, like the rest of Guildbook. Anyone can read the code and see exactly what it does.",
+    body: "Vigil never touches the game client. Fights are analysed on your computer and only the report is sent. It's free and open source under the AGPL-3.0, so anyone can check.",
   },
 ];
 
@@ -333,8 +336,8 @@ export default async function VigilDownloadPage() {
           <p className="mt-7 font-display text-xl text-bone sm:text-2xl">Keep watch over every pull.</p>
           <hr className="rule-gold mt-5 w-48 lg:ml-0" />
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-bone/85">
-            Vigil watches your World of Warcraft: Forever combat log while you play, calls out mistakes as they happen and uploads every
-            raid fight to your guild&apos;s Guildbook for a full review.
+            Vigil watches your World of Warcraft: Forever combat log while you play, calls out mistakes as they happen, briefs you on every
+            boss and uploads each raid fight to your guild&apos;s Guildbook for a full review.
           </p>
           <div className="mt-8 w-full">
             {release ? <Downloads release={release} platform={platform} hero /> : <NoRelease ok={ok} hero />}
@@ -348,7 +351,15 @@ export default async function VigilDownloadPage() {
             <External href={COMPANION_RELEASES_URL}>See all releases</External>
           </div>
         </div>
-        <AppWindowMock />
+        <AppScreenshot
+          src={liveShot}
+          alt="The Vigil window during a Ragnaros kill: a live score of 88 with GCD use, idle time and threat per second, Shield Block and Sunder Armor uptimes, Boss Intel listing Ragnaros's abilities with the damage each has done, a group damage meter with class icons, and a death to Wrath of Ragnaros."
+          caption="Demo data from a synthetic Ragnaros kill."
+          sizes="(min-width: 432px) 384px, calc(100vw - 3rem)"
+          priority
+          glow
+          className="max-w-sm"
+        />
       </section>
 
       <section aria-labelledby="how-heading">
@@ -381,6 +392,26 @@ export default async function VigilDownloadPage() {
             </li>
           ))}
         </ul>
+        <div className="mx-auto mt-12 grid max-w-4xl items-start gap-10 sm:grid-cols-2">
+          <AppScreenshot
+            src={intelShot}
+            alt="Boss Intel for Ragnaros: his portrait and a summary, then Wrath of Ragnaros, Elemental Fire and Magma Blast, each with its spell icon, role tags, what it does, what to do and the damage it did in the last fight."
+            caption="Boss Intel for Ragnaros. Demo data."
+            sizes="(min-width: 1024px) 428px, (min-width: 640px) calc(50vw - 3rem), calc(100vw - 3rem)"
+            fade
+            className="max-w-md"
+          />
+          <AppScreenshot
+            src={detailShot}
+            alt="Damage taken by ability after a Ragnaros kill: each ability with its icon, total damage, hits, players hit and deaths, and the players it hit shown with their class icons."
+            caption="Damage taken, from a finished fight. Demo data."
+            sizes="(min-width: 1024px) 428px, (min-width: 640px) calc(50vw - 3rem), calc(100vw - 3rem)"
+            className="max-w-md"
+          />
+        </div>
+        <p className="mx-auto mt-6 max-w-xl text-center text-xs text-muted">
+          Spell icons and boss portraits are from Blizzard Entertainment&apos;s World of Warcraft. Vigil is not affiliated with Blizzard.
+        </p>
       </section>
 
       <section aria-labelledby="faq-heading" className="mx-auto max-w-3xl">

@@ -96,7 +96,7 @@ export default async function AdminAddonsPage({ params }: PageProps<"/[guild]/ad
         </Panel>
       ))}
       <Panel title="Add addon">
-        <ActionForm action={saveAddonAction.bind(null, slug)} className="space-y-3" resetOnSuccess>
+        <ActionForm action={saveAddonAction.bind(null, slug)} className="space-y-3">
           <AddonFields />
           <FormMessage />
           <SubmitButton>Add addon</SubmitButton>

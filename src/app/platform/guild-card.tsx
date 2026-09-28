@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { GuildEmblem } from "@/components/guild-emblem";
+import { RegionBadge } from "@/components/region";
 import { RulesetBadge } from "@/components/ruleset";
 import { FactionBadge } from "@/components/ui";
 import { VerifiedSeal } from "@/components/verified-seal";
-import type { Faction, Ruleset } from "@/lib/game";
+import type { Faction, Region, Ruleset } from "@/lib/game";
 import type { LookColumns } from "@/lib/tabard/look";
 
 /** A guild on the apex. Links are plain anchors: the guild lives on another host. */
@@ -12,7 +13,7 @@ export function GuildCard({
   href,
   children,
 }: {
-  guild: { name: string; motto: string | null; faction: Faction; ruleset: Ruleset; verifiedAt: Date | null } & LookColumns;
+  guild: { name: string; motto: string | null; region: Region; faction: Faction; ruleset: Ruleset; verifiedAt: Date | null } & LookColumns;
   href: string;
   children?: ReactNode;
 }) {
@@ -29,6 +30,7 @@ export function GuildCard({
         </a>
         {guild.motto && <p className="text-xs tracking-[0.2em] text-muted uppercase">{guild.motto}</p>}
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted [&_a]:relative [&_a]:z-10">
+          <RegionBadge region={guild.region} />
           <FactionBadge faction={guild.faction} />
           <RulesetBadge ruleset={guild.ruleset} />
           {guild.verifiedAt && <VerifiedSeal label size={12} />}

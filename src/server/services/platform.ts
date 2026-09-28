@@ -1,7 +1,8 @@
-import { and, asc, count, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
-import { characters, guildDomains, guilds, memberships, ranks } from "@/db/schema";
+import { and, asc, count, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { characters, guildDomains, guilds, memberships, ranks, users } from "@/db/schema";
 import type { Db } from "@/db/types";
-import type { Faction, Ruleset } from "@/lib/game";
+import { CONTACT_EMAIL } from "@/lib/brand";
+import type { Faction, Region, Ruleset } from "@/lib/game";
 import { describeIdentity, type GuildIdentity } from "@/lib/guild-identity";
 import { slugProblem } from "@/lib/hosts";
 import { createGuildInput, SLUG_MESSAGES } from "@/lib/validation";
@@ -9,13 +10,19 @@ import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError } from "@/server/errors";
 import { createGuildWithDefaults } from "@/server/services/guilds";
+import { suggestSlugs } from "@/server/services/slug-suggestions";
 import { guildLookColumns } from "@/server/services/tabard";
+import type { SlugIdentity } from "@/lib/slug-suggestions";
 
 export interface CreationLimits {
-  /** Guilds one user may found in total. */
+  /** Guilds one user may own (have founded and not deleted) at once. */
   perUser: number;
   /** Guilds one user may found in a rolling day. */
   perDay: number;
+  /** Discord IDs of platform admins, who have no limits. */
+  exemptDiscordIds?: ReadonlySet<string>;
+  /** Per-user `perUser` overrides, keyed by Discord ID. */
+  overrides?: Readonly<Record<string, number>>;
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -23,23 +30,67 @@ function positiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+export const DEFAULT_GUILD_CREATE_LIMIT = 3;
+
+function idList(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function creationLimitsFromEnv(env: Record<string, string | undefined> = process.env): CreationLimits {
-  return { perUser: positiveInt(env.GUILD_CREATE_LIMIT, 3), perDay: positiveInt(env.GUILD_CREATE_DAILY_LIMIT, 2) };
+  const overrides: Record<string, number> = {};
+  for (const entry of idList(env.GUILD_CREATE_LIMIT_OVERRIDES)) {
+    const [id, limit] = entry.split(":").map((s) => s.trim());
+    const n = Number.parseInt(limit ?? "", 10);
+    if (id && Number.isFinite(n) && n >= 0) overrides[id] = n;
+  }
+  return {
+    perUser: positiveInt(env.GUILD_CREATE_LIMIT, DEFAULT_GUILD_CREATE_LIMIT),
+    perDay: positiveInt(env.GUILD_CREATE_DAILY_LIMIT, 2),
+    exemptDiscordIds: new Set(idList(env.PLATFORM_ADMIN_DISCORD_IDS)),
+    overrides,
+  };
+}
+
+function guildLimitMessage(limit: number, owned: string[]): string {
+  const count = limit === 1 ? "1 guild" : `${limit} guilds`;
+  const list = owned.length > 0 ? ` You own ${owned.join(", ")}.` : "";
+  return `Each account can own up to ${count}.${list} Delete a guild you no longer need from its Guild Settings, or email ${CONTACT_EMAIL} with your Discord username to ask for a higher limit.`;
+}
+
+/** Enforces the per-account guild cap and daily founding limit; platform admins are exempt. */
+async function assertCanFoundGuild(db: Db, userId: string, limits: CreationLimits, now: Date) {
+  const [user] = await db.select({ discordId: users.discordId }).from(users).where(eq(users.id, userId));
+  const discordId = user?.discordId ?? null;
+  if (discordId && limits.exemptDiscordIds?.has(discordId)) return;
+  const perUser = (discordId ? limits.overrides?.[discordId] : undefined) ?? limits.perUser;
+  const owned = await db.select({ name: guilds.name }).from(guilds).where(eq(guilds.createdByUserId, userId)).orderBy(asc(guilds.name));
+  if (owned.length >= perUser) throw new DomainError(guildLimitMessage(perUser, owned.map((g) => g.name)));
+  const [{ recent } = { recent: 0 }] = await db
+    .select({ recent: count() })
+    .from(guilds)
+    .where(and(eq(guilds.createdByUserId, userId), gte(guilds.createdAt, new Date(now.getTime() - DAY_MS))));
+  if (recent >= limits.perDay) throw new DomainError("You have founded several guilds today. Please try again tomorrow.");
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type SlugAvailability = { available: true } | { available: false; reason: string };
+export type SlugAvailability = { available: true } | { available: false; reason: string; suggestions?: string[] };
 
-export async function checkSlugAvailability(db: Db, raw: string): Promise<SlugAvailability> {
+/** Whether a subdomain is free; when it's taken or reserved, free alternatives for a guild with `identity`. */
+export async function checkSlugAvailability(db: Db, raw: string, identity: SlugIdentity = {}): Promise<SlugAvailability> {
   const slug = raw.trim().toLowerCase();
   const problem = slugProblem(slug);
+  if (problem === "reserved") return { available: false, reason: SLUG_MESSAGES[problem], suggestions: await suggestSlugs(db, slug, identity) };
   if (problem) return { available: false, reason: SLUG_MESSAGES[problem] };
   const [taken] = await db.select({ id: guilds.id }).from(guilds).where(eq(guilds.slug, slug));
-  return taken ? { available: false, reason: "That subdomain is taken" } : { available: true };
+  if (!taken) return { available: true };
+  return { available: false, reason: "That subdomain is taken", suggestions: await suggestSlugs(db, slug, identity) };
 }
 
-/** The guild holding this (name, faction, ruleset), compared case-insensitively like `guilds_identity_key`. */
+/** The guild holding this (name, region, faction, ruleset), compared case-insensitively like `guilds_identity_key`. */
 export async function findGuildByIdentity(db: Db, identity: GuildIdentity, exceptGuildId?: string) {
   const [row] = await db
     .select({ id: guilds.id, slug: guilds.slug, name: guilds.name, verifiedAt: guilds.verifiedAt })
@@ -47,6 +98,7 @@ export async function findGuildByIdentity(db: Db, identity: GuildIdentity, excep
     .where(
       and(
         sql`lower(${guilds.name}) = lower(${identity.name})`,
+        eq(guilds.region, identity.region),
         eq(guilds.faction, identity.faction),
         eq(guilds.ruleset, identity.ruleset),
         exceptGuildId ? ne(guilds.id, exceptGuildId) : undefined,
@@ -63,7 +115,8 @@ export const IDENTITY_CONSTRAINT = "guilds_identity_key";
 
 /**
  * Founds a guild on Guildbook: neutral "standard" preset (ranks, charter, loot policy, story page), with the
- * creator as an active member at the top rank (Guild Master, an admin).
+ * creator as an active member at the top rank (Guild Master, an admin). It starts as an unlisted draft until an
+ * admin publishes it from the setup checklist.
  */
 export async function createGuildForUser(
   db: Db,
@@ -73,21 +126,14 @@ export async function createGuildForUser(
   now = new Date(),
 ) {
   const input = createGuildInput.parse(raw);
+  await assertCanFoundGuild(db, userId, limits, now);
 
-  const [{ total } = { total: 0 }] = await db.select({ total: count() }).from(guilds).where(eq(guilds.createdByUserId, userId));
-  if (total >= limits.perUser) {
-    throw new DomainError(`You can found up to ${limits.perUser} guilds. Ask the Guildbook team if you need more.`);
+  const availability = await checkSlugAvailability(db, input.slug, input);
+  if (!availability.available) {
+    throw new DomainError(availability.reason, { field: "slug", suggestions: availability.suggestions });
   }
-  const [{ recent } = { recent: 0 }] = await db
-    .select({ recent: count() })
-    .from(guilds)
-    .where(and(eq(guilds.createdByUserId, userId), gte(guilds.createdAt, new Date(now.getTime() - DAY_MS))));
-  if (recent >= limits.perDay) throw new DomainError("You have founded several guilds today. Please try again tomorrow.");
-
-  const availability = await checkSlugAvailability(db, input.slug);
-  if (!availability.available) throw new DomainError(availability.reason);
   const holder = await findGuildByIdentity(db, input);
-  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }));
+  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }), { field: "name" });
 
   try {
     return await db.transaction(async (tx) => {
@@ -96,11 +142,14 @@ export async function createGuildForUser(
         name: input.name,
         motto: input.motto,
         timezone: input.timezone,
+        region: input.region,
         faction: input.faction,
         ruleset: input.ruleset,
         directoryListed: input.directoryListed,
         preset: "standard",
+        rankPreset: input.rankPreset,
         createdByUserId: userId,
+        publishedAt: null,
       });
       const top = [...created.ranks].sort((a, b) => a.sortOrder - b.sortOrder)[0]!;
       const [membership] = await tx
@@ -114,14 +163,16 @@ export async function createGuildForUser(
           action: "guild.create",
           targetType: "guild",
           targetId: created.guild.id,
-          after: { slug: input.slug, name: input.name, faction: input.faction, ruleset: input.ruleset },
+          after: { slug: input.slug, name: input.name, region: input.region, faction: input.faction, ruleset: input.ruleset },
         },
       );
       return { guild: created.guild, founderRank: top };
     });
   } catch (err) {
-    if (isUniqueViolation(err, IDENTITY_CONSTRAINT)) throw new DomainError(identityTakenMessage(input));
-    if (isUniqueViolation(err)) throw new DomainError("That subdomain is taken");
+    if (isUniqueViolation(err, IDENTITY_CONSTRAINT)) throw new DomainError(identityTakenMessage(input), { field: "name" });
+    if (isUniqueViolation(err)) {
+      throw new DomainError("That subdomain is taken", { field: "slug", suggestions: await suggestSlugs(db, input.slug, input) });
+    }
     throw err;
   }
 }
@@ -135,9 +186,11 @@ export async function listUserGuilds(db: Db, userId: string) {
       motto: guilds.motto,
       preset: guilds.preset,
       ...guildLookColumns,
+      region: guilds.region,
       faction: guilds.faction,
       ruleset: guilds.ruleset,
       verifiedAt: guilds.verifiedAt,
+      publishedAt: guilds.publishedAt,
       status: memberships.status,
       rankName: ranks.name,
       rankTier: ranks.tier,
@@ -169,11 +222,12 @@ export async function listUserGuilds(db: Db, userId: string) {
 }
 
 export interface DirectoryFilter {
+  region?: Region;
   faction?: Faction;
   ruleset?: Ruleset;
 }
 
-/** Guilds that opted in to the public directory, with active member counts: verified first, then largest. */
+/** Published guilds that opted in to the public directory, with active member counts: verified first, then largest. */
 export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) {
   const rows = await db
     .select({
@@ -184,6 +238,7 @@ export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) 
       description: guilds.description,
       preset: guilds.preset,
       ...guildLookColumns,
+      region: guilds.region,
       faction: guilds.faction,
       ruleset: guilds.ruleset,
       verifiedAt: guilds.verifiedAt,
@@ -194,6 +249,8 @@ export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) 
     .where(
       and(
         eq(guilds.directoryListed, true),
+        isNotNull(guilds.publishedAt),
+        filter.region ? eq(guilds.region, filter.region) : undefined,
         filter.faction ? eq(guilds.faction, filter.faction) : undefined,
         filter.ruleset ? eq(guilds.ruleset, filter.ruleset) : undefined,
       ),

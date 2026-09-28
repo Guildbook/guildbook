@@ -9,11 +9,11 @@ import { can } from "@/lib/authz/policy";
 import { formatDate } from "@/lib/format";
 import { fullName } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
-import { applyAction, withdrawApplicationAction } from "@/server/actions/member";
+import { applyAction, applyWithInviteAction, withdrawApplicationAction } from "@/server/actions/member";
 import { getGuild, getViewer } from "@/server/context";
 import { guildSocialMetadata } from "@/server/guild-metadata";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
-import { listOwnApplications } from "@/server/services/applications";
+import { listOwnApplications, validDraftInvite } from "@/server/services/applications";
 import { getEligibleCharacters } from "@/server/services/battlenet";
 
 export async function generateMetadata({ params }: PageProps<"/[guild]/apply">): Promise<Metadata> {
@@ -28,6 +28,27 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
   const order = guild.preset === "order";
   const title = order ? "Apply to the Order" : `Apply to ${guild.name}`;
   const eyebrow = order ? "Postulancy" : "Recruitment";
+  const invite = !guild.publishedAt && validDraftInvite(guild, sp.invite) ? String(sp.invite) : null;
+  const applyPath = invite ? `/apply?invite=${encodeURIComponent(invite)}` : "/apply";
+
+  if (!guild.publishedAt && !invite && !can(viewer.actor, "member.area")) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <PageHeader title={title} eyebrow={eyebrow} />
+        <Panel>
+          <p className="leading-relaxed" data-testid="apply-draft">
+            {guild.name} is still getting ready and isn&apos;t taking applications yet. Check back soon
+            {guild.discordInviteUrl ? ", or say hello on Discord in the meantime" : ""}.
+          </p>
+          {guild.discordInviteUrl && (
+            <a href={guild.discordInviteUrl} className="btn btn-ghost mt-4" rel="noopener noreferrer" target="_blank">
+              Join our Discord
+            </a>
+          )}
+        </Panel>
+      </div>
+    );
+  }
 
   if (!viewer.user) {
     return (
@@ -40,7 +61,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
             guild roles.
           </p>
           <Link
-            href={`${guildHref(slug, "/login")}?callbackUrl=${encodeURIComponent(guildHref(slug, "/apply"))}`}
+            href={`${guildHref(slug, "/login")}?callbackUrl=${encodeURIComponent(guildHref(slug, applyPath))}`}
             className="btn btn-primary w-full"
           >
             Sign in with Discord to apply
@@ -68,7 +89,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
   const pending = history.find((a) => a.status === "pending");
   const bnetEnabled = battlenetEnabled(blizzardConfigFromEnv());
   const bnet = bnetEnabled ? await getEligibleCharacters(db, viewer.actor) : { link: null, characters: [] };
-  const applyHref = guildHref(slug, "/apply");
+  const applyHref = guildHref(slug, applyPath);
   const showForm = !pending && guild.recruitmentOpen;
 
   return (
@@ -113,7 +134,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
                 <>
                   <BattlenetAccount link={bnet.link} slug={slug} returnTo={applyHref} timezone={guild.timezone} />
                   {bnet.characters.length === 0 && (
-                    <EmptySnapshotNote link={bnet.link} faction={guild.faction} />
+                    <EmptySnapshotNote link={bnet.link} faction={guild.faction} region={guild.region} />
                   )}
                 </>
               ) : (
@@ -128,7 +149,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
             </div>
           )}
           <ApplicationForm
-            action={applyAction.bind(null, slug)}
+            action={invite ? applyWithInviteAction.bind(null, slug, invite) : applyAction.bind(null, slug)}
             characters={bnet.characters}
             showFaction={!guild.faction}
             defaultDiscord={viewer.user.name ?? ""}

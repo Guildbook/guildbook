@@ -9,6 +9,7 @@ import { crestIcon, faviconIco, linkPreview, paddedIcon, tabardSvg } from "@/ser
 import { guildOrigin, hostFromRequest } from "@/server/hosts";
 import { primaryCustomDomain } from "@/server/services/domains";
 import { guildLookColumns } from "@/server/services/tabard";
+import { crestImages } from "@/server/tabard-tint";
 
 const FILES = {
   "icon.svg": "image/svg+xml",
@@ -40,6 +41,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/brand
       slug: guilds.slug,
       name: guilds.name,
       motto: guilds.motto,
+      region: guilds.region,
       faction: guilds.faction,
       ruleset: guilds.ruleset,
       recruitmentOpen: guilds.recruitmentOpen,
@@ -64,6 +66,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/brand
     body = await linkPreview(look, {
       name: guild.name,
       motto: guild.motto,
+      region: guild.region,
       faction: guild.faction,
       ruleset: guild.ruleset,
       recruiting: guild.recruitmentOpen,
@@ -86,7 +89,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/brand
 async function render(file: Exclude<BrandFile, "og.png">, look: ReturnType<typeof guildLook>): Promise<Buffer> {
   switch (file) {
     case "icon.svg":
-      return Buffer.from(tabardSvg(look.tabard, 120, "mark").replace(/ width="[\d.]+" height="120"/, ""));
+      return Buffer.from(tabardSvg(look.tabard, 120, await crestImages(look.tabard), "mark").replace(/ width="[\d.]+" height="120"/, ""));
     case "favicon.ico":
       return faviconIco(look);
     case "apple-icon.png":

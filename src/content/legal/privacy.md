@@ -33,7 +33,7 @@ We don't receive your Discord password, your servers, your friends list or your 
 Linking Battle.net lets you prove that your characters are really yours. We ask Blizzard only for the `wow.profile` permission. We store:
 
 - your Battle.net account ID, BattleTag and region;
-- a snapshot of the World of Warcraft characters on your account: character ID, name, surname, realm, level, class, race, faction and guild name;
+- a snapshot of the World of Warcraft characters on your account, in the Americas and Europe regions: character ID, name, surname, region, realm, level, class, race, faction and guild name;
 - when the snapshot was taken, and whether it was complete;
 - the Battle.net access token, **encrypted at rest** (AES-256-GCM). Blizzard doesn't issue a refresh token, so this token stops working after about 24 hours and we can't use it after that.
 

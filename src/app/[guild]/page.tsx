@@ -35,7 +35,7 @@ export default async function HomePage({ params }: PageProps<"/[guild]">) {
         <hr className="rule-gold mt-5 w-56" />
         <p className="mt-5 max-w-2xl leading-relaxed text-bone/90">{guild.description}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          {!isMember && guild.recruitmentOpen && (
+          {!isMember && guild.publishedAt && guild.recruitmentOpen && (
             <Link href={guildHref(slug, "/apply")} className="btn btn-primary">
               {order ? "Apply to the Order" : "Apply to join"}
             </Link>

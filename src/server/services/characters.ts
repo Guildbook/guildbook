@@ -311,6 +311,7 @@ export async function getPublicCharacter(db: Db, guildId: string, id: string) {
       level: characters.level,
       isMain: characters.isMain,
       verified: characters.verified,
+      region: characters.region,
       realmName: characters.realmName,
       syncedAt: characters.syncedAt,
       joinedAt: memberships.joinedAt,

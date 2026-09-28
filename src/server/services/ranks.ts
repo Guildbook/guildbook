@@ -266,20 +266,23 @@ export async function removeMember(db: Db, actor: Actor, membershipId: string) {
 // --- Guild settings --------------------------------------------------------
 
 /**
- * Saves guild settings. Name, faction and ruleset are the guild's identity: they must be unique together, and
+ * Saves guild settings. Name, region, faction and ruleset are the guild's identity: they must be unique together, and
  * changing any of them on a verified guild removes the verification (the in-game guild no longer matches).
  */
 export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "guild.settings");
   const input = guildSettingsInput.parse(raw);
   const holder = await findGuildByIdentity(db, input, actor.guildId);
-  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }));
+  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }), { field: "name" });
   try {
     return await db.transaction(async (tx) => {
       const [before] = await tx.select().from(guilds).where(eq(guilds.id, actor.guildId));
       if (!before) throw new NotFoundError("Guild");
       const identityChanged =
-        !sameGuildName(before.name, input.name) || before.faction !== input.faction || before.ruleset !== input.ruleset;
+        !sameGuildName(before.name, input.name) ||
+        before.region !== input.region ||
+        before.faction !== input.faction ||
+        before.ruleset !== input.ruleset;
       const unverify = Boolean(before.verifiedAt) && identityChanged;
       await tx
         .update(guilds)
@@ -293,6 +296,7 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
           name: before.name,
           motto: before.motto,
           timezone: before.timezone,
+          region: before.region,
           faction: before.faction,
           ruleset: before.ruleset,
           discordInviteUrl: before.discordInviteUrl,
@@ -307,7 +311,13 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
           action: "guild.verification.remove",
           targetType: "guild",
           targetId: actor.guildId,
-          before: { name: before.name, faction: before.faction, ruleset: before.ruleset, character: before.verifiedCharacterName },
+          before: {
+            name: before.name,
+            region: before.region,
+            faction: before.faction,
+            ruleset: before.ruleset,
+            character: before.verifiedCharacterName,
+          },
           after: { reason: "identity_changed" },
         });
       }

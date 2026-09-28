@@ -1,5 +1,5 @@
 import type { BattlenetExcludedGroup, BattlenetScan } from "@/db/schema";
-import { FACTION_LABELS, type Faction } from "@/lib/game";
+import { FACTION_LABELS, type Faction, REGION_LABELS, type Region } from "@/lib/game";
 import { hasLaunched } from "@/lib/showcase";
 import { GAME_VERSION_LABELS } from "@/lib/wow-versions";
 
@@ -7,9 +7,11 @@ export interface EmptySnapshotInput {
   battletag: string;
   status: string;
   scan: BattlenetScan | null;
-  /** The link's WoW: Forever characters, before the guild's faction and realm filter. */
-  foreverCharacters: readonly { faction: Faction }[];
+  /** The link's WoW: Forever characters, before the guild's region, faction and realm filter. */
+  foreverCharacters: readonly { faction: Faction; region?: Region }[];
   guildFaction: Faction | null;
+  /** The guild's region; characters without a region (snapshots from before regions) are US. */
+  guildRegion?: Region | null;
   now: Date;
 }
 
@@ -38,12 +40,22 @@ function launchNote(now: Date): string {
 
 /** Why a linked account offers this guild no characters, saying what the account does have. */
 export function emptySnapshotMessage(input: EmptySnapshotInput): string {
-  const { battletag, status, scan, foreverCharacters, guildFaction, now } = input;
+  const { battletag, status, scan, guildFaction, guildRegion, now } = input;
+  const inRegion = (region: Region | undefined) => !guildRegion || (region ?? "us") === guildRegion;
+  const foreverCharacters = input.foreverCharacters.filter((c) => inRegion(c.region));
+  const elsewhere = input.foreverCharacters.filter((c) => !inRegion(c.region));
+  const regionLabel = guildRegion ? REGION_LABELS[guildRegion] : null;
+  const where = regionLabel ? ` in the ${regionLabel} region` : "";
   if (status === "forbidden") {
     return "Battle.net didn't share your character list. Reconnect and allow access to your World of Warcraft profile.";
   }
   if (status === "error") {
     return "Battle.net didn't respond when we read your characters. Try refreshing or reconnecting later.";
+  }
+
+  if (foreverCharacters.length === 0 && elsewhere.length > 0 && regionLabel) {
+    const other = listJoin([...new Set(elsewhere.map((c) => (c.region ?? "us") === "us" ? "the Americas" : REGION_LABELS[c.region!]))]);
+    return `Your WoW: Forever characters on ${battletag} are in ${other}, but this guild is in the ${regionLabel} region. Regions are separate worlds, so only ${regionLabel} characters can join it.`;
   }
 
   if (foreverCharacters.length > 0) {
@@ -55,15 +67,20 @@ export function emptySnapshotMessage(input: EmptySnapshotInput): string {
   }
 
   if (!scan) {
-    return `We found no WoW: Forever characters on ${battletag}. Refresh your characters or reconnect Battle.net to see what else is on the account.`;
+    return `We found no WoW: Forever characters${where} on ${battletag}. Refresh your characters or reconnect Battle.net to see what else is on the account.`;
   }
 
-  const incomplete = scan.namespaces.some((n) => n.status === "error")
-    ? " Battle.net didn't answer for every game, so this may be incomplete."
-    : "";
+  const failed = scan.namespaces.filter((n) => n.status === "error");
+  const failedRegions = [...new Set(failed.flatMap((n) => (n.region ? [REGION_LABELS[n.region]] : [])))];
+  const incomplete =
+    failed.length === 0
+      ? ""
+      : failedRegions.length > 0
+        ? ` Battle.net didn't answer for every game in ${listJoin(failedRegions)}, so this may be incomplete.`
+        : " Battle.net didn't answer for every game, so this may be incomplete.";
   if (scan.excluded.length === 0) {
     return `Battle.net listed no World of Warcraft characters on ${battletag}.${incomplete} ${launchNote(now)}`;
   }
   const found = listJoin(scan.excluded.map(describeGroup));
-  return `We found no WoW: Forever characters on ${battletag}. We did find ${found}, but only WoW: Forever characters can be verified.${incomplete} ${launchNote(now)}`;
+  return `We found no WoW: Forever characters${where} on ${battletag}. We did find ${found}, but only WoW: Forever characters can be verified.${incomplete} ${launchNote(now)}`;
 }

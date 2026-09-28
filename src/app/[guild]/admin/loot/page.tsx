@@ -33,7 +33,7 @@ export default async function AdminLootPage({ params }: PageProps<"/[guild]/admi
       </PageHeader>
 
       <Panel title="Quick award">
-        <ActionForm action={awardLootAction.bind(null, slug)} resetOnSuccess className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ActionForm action={awardLootAction.bind(null, slug)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Item" name="item" hint="Item ID, in-game link, Wowhead link, or a known item's name">
             <input id="item" name="item" className="field" list="loot-items" required autoComplete="off" />
           </Field>

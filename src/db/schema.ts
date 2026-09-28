@@ -18,7 +18,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
-import { CLASSES, FACTIONS, PROFESSIONS, ROLES, RULESETS } from "@/lib/game";
+import { CLASSES, FACTIONS, PROFESSIONS, REGIONS, ROLES, RULESETS } from "@/lib/game";
 import { RANK_TIERS } from "@/lib/authz/tiers";
 import { THEME_BASES, type ThemeOverrides } from "@/lib/tabard/theme";
 import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/constants";
@@ -34,6 +34,7 @@ export const wowClassEnum = pgEnum("wow_class", CLASSES);
 export const raidRoleEnum = pgEnum("raid_role", ROLES);
 export const factionEnum = pgEnum("faction", FACTIONS);
 export const rulesetEnum = pgEnum("ruleset", RULESETS);
+export const regionEnum = pgEnum("region", REGIONS);
 export const professionEnum = pgEnum("profession", PROFESSIONS);
 export const membershipStatusEnum = pgEnum("membership_status", ["applicant", "active", "former"]);
 export const applicationStatusEnum = pgEnum("application_status", [
@@ -120,6 +121,7 @@ export const battlenetLinks = pgTable("battlenet_links", {
     .references(() => users.id, { onDelete: "cascade" }),
   battlenetId: text("battlenet_id").notNull().unique(),
   battletag: text("battletag").notNull(),
+  /** Region of the OAuth grant (the default BATTLENET_REGION); characters are scanned in every region, see `region` on each. */
   region: text("region").notNull(),
   accessTokenEnc: text("access_token_enc"),
   tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
@@ -135,6 +137,8 @@ export const battlenetLinks = pgTable("battlenet_links", {
 
 export interface BattlenetNamespaceScan {
   namespace: string;
+  /** Absent in scans taken before regions (all US). */
+  region?: (typeof REGIONS)[number];
   status: "ok" | "empty" | "forbidden" | "error";
   httpStatus: number;
   /** Characters the namespace listed, before any filtering. */
@@ -151,7 +155,10 @@ export interface BattlenetExcludedGroup {
 }
 
 export interface BattlenetScan {
+  /** The Forever namespace of the first scanned region (see `foreverNamespaces` for all). */
   foreverNamespace: string;
+  /** The Forever namespace per scanned region; absent in scans taken before regions. */
+  foreverNamespaces?: string[];
   namespaces: BattlenetNamespaceScan[];
   excluded: BattlenetExcludedGroup[];
 }
@@ -169,6 +176,16 @@ export interface VerificationResult {
   claim?: { name: string; holderName: string | null; holderVerified: boolean } | null;
 }
 
+/** The admin setup checklist's own state; whether each step is done is computed from the guild's data. */
+export interface GuildSetupState {
+  dismissedAt?: string;
+  skipped?: string[];
+  /** An admin confirmed the rank ladder in setup without editing it. */
+  ranksConfirmedAt?: string;
+  /** Lets people apply to a draft guild through a private link (`/apply?invite=`); public applications open on publish. */
+  inviteCode?: string;
+}
+
 export interface BattlenetCharacterSnapshot {
   id: string;
   name: string;
@@ -180,6 +197,8 @@ export interface BattlenetCharacterSnapshot {
   race: string;
   faction: (typeof FACTIONS)[number];
   guildName: string | null;
+  /** Battle.net region the character lives in; absent in snapshots taken before regions, which were all US. */
+  region?: (typeof REGIONS)[number];
   /** The realm's WoW: Forever ruleset when Blizzard's realm data says; absent in snapshots taken before rulesets. */
   ruleset?: (typeof RULESETS)[number] | null;
 }
@@ -197,13 +216,15 @@ export const guilds = pgTable("guilds", {
   description: text("description").notNull().default(""),
   realm: text("realm"),
   timezone: text("timezone").notNull().default("America/New_York"),
+  /** Battle.net region. Regions are separate worlds; with name, faction and ruleset, the guild's identity. */
+  region: regionEnum("region").notNull(),
   /** Classic-era guilds are faction-locked: one faction per guild. */
   faction: factionEnum("faction").notNull(),
-  /** WoW: Forever ruleset (it has no realms). With name and faction, the guild's identity (see guilds_identity_key). */
+  /** WoW: Forever ruleset (it has no realms). With name, region and faction, the guild's identity (see guilds_identity_key). */
   ruleset: rulesetEnum("ruleset").notNull(),
   /**
    * Verified: an admin-tier member's Battle.net character is Guild Master (rank 0) of the in-game guild with this
-   * name, faction and ruleset. The daily cron re-checks it; the badge goes after VERIFICATION_GRACE_DAYS of failures.
+   * name, region, faction and ruleset. The daily cron re-checks it; the badge goes after VERIFICATION_GRACE_DAYS of failures.
    */
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   verifiedUserId: text("verified_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -226,28 +247,44 @@ export const guilds = pgTable("guilds", {
   discordGuildId: text("discord_guild_id"),
   discordInviteUrl: text("discord_invite_url"),
   preset: guildPresetEnum("preset").notNull().default("standard"),
+  /**
+   * Null while the guild is a draft: unlisted (out of the directory, sitemap and search engines), still reachable by
+   * its link, and not accepting applications. Admins publish it from the setup checklist.
+   */
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  setup: jsonb("setup").$type<GuildSetupState>().notNull().default({}),
   /** Opt-in listing in the public Guildbook directory. */
   directoryListed: boolean("directory_listed").notNull().default(false),
   /** Loot history is members-only unless the guild opts in to showing it to everyone. */
   lootPublic: boolean("loot_public").notNull().default(false),
   createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  /** The in-game tabard (palette indexes from lib/tabard/palette.ts, emblem ids from lib/tabard/emblems.tsx). */
+  /**
+   * The tabard: the game's colour ids (lib/tabard/palette.ts), Blizzard's emblem id (lib/tabard/crest.ts, required
+   * except on the Order preset, whose locked crest uses none) and the style of the drawn trim. `tabardBorderId` is the
+   * in-game border shape from the last import, stored but never drawn. `tabardEmblem` is the drawn emblem guilds had
+   * before migration 0018 mapped them to real ones; nothing reads it.
+   */
   tabardBackground: smallint("tabard_background").notNull().default(32),
   tabardBorder: smallint("tabard_border").notNull().default(3),
   tabardBorderStyle: text("tabard_border_style").notNull().default("plain"),
   tabardEmblem: text("tabard_emblem").notNull().default("star"),
   tabardEmblemColor: smallint("tabard_emblem_color").notNull().default(3),
+  tabardEmblemId: smallint("tabard_emblem_id"),
+  tabardBorderId: smallint("tabard_border_id"),
   themeBase: guildThemeBaseEnum("theme_base").notNull().default("tome"),
   /** Site-only colour overrides (hex) for the primary, trim and highlight roles; the crest ignores them. */
   themeOverrides: jsonb("theme_overrides").$type<ThemeOverrides>().notNull().default({}),
   createdAt: createdAt(),
 }, (t) => [
   index("guilds_created_by_idx").on(t.createdByUserId, t.createdAt),
-  uniqueIndex("guilds_identity_key").on(sql`lower(${t.name})`, t.faction, t.ruleset),
+  uniqueIndex("guilds_identity_key").on(sql`lower(${t.name})`, t.region, t.faction, t.ruleset),
   check("guilds_theme_order_only", sql`${t.themeBase} <> 'order' or ${t.preset} = 'order'`),
   check("guilds_tabard_background_range", sql`${t.tabardBackground} between 0 and 50`),
   check("guilds_tabard_border_range", sql`${t.tabardBorder} between 0 and 16`),
   check("guilds_tabard_emblem_color_range", sql`${t.tabardEmblemColor} between 0 and 16`),
+  check("guilds_tabard_crest_ids", sql`${t.tabardEmblemId} >= 0 and ${t.tabardBorderId} >= 0`),
+  check("guilds_tabard_emblem_required", sql`${t.preset} = 'order' or ${t.tabardEmblemId} is not null`),
+  check("guilds_tabard_order_drawn", sql`${t.themeBase} <> 'order' or (${t.tabardEmblemId} is null and ${t.tabardBorderId} is null)`),
 ]);
 
 /**
@@ -348,6 +385,8 @@ export const characters = pgTable(
     /** Name, class and level came from the owner's linked Battle.net account. */
     verified: boolean("verified").notNull().default(false),
     bnetCharacterId: text("bnet_character_id"),
+    /** Battle.net region of a verified character (always the guild's); null for manually entered characters. */
+    region: regionEnum("region"),
     realmSlug: text("realm_slug"),
     realmName: text("realm_name"),
     /** Last successful Battle.net sync (lastSyncedAt). */
@@ -423,6 +462,8 @@ export const applications = pgTable(
     /** Verified against the applicant's Battle.net character snapshot at submission. */
     verified: boolean("verified").notNull().default(false),
     bnetCharacterId: text("bnet_character_id"),
+    /** Battle.net region of a verified application character (always the guild's); null for manual ones. */
+    region: regionEnum("region"),
     realmSlug: text("realm_slug"),
     realmName: text("realm_name"),
     battletag: text("battletag"),

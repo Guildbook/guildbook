@@ -9,9 +9,8 @@ import { GuildThemeStyle } from "@/components/guild-theme";
 import { TabardArt, TabardCrest } from "@/components/tabard-crest";
 import { brandFile, brandIcons, brandPreviewImage, guildBrand, guildPreviewImage, type PreviewGuild, previewVersion } from "@/lib/brand";
 import { STATIC_PREVIEW_VERSIONS } from "@/lib/brand-versions";
-import { DEFAULT_TABARD, ORDER_TABARD, tabardKey, type TabardConfig } from "@/lib/tabard/config";
+import { BORDER_STYLE_IDS, DEFAULT_TABARD, ORDER_TABARD, tabardKey, type TabardConfig } from "@/lib/tabard/config";
 import type { TabardDetail } from "@/lib/tabard/emblem-types";
-import { EMBLEMS } from "@/lib/tabard/emblems";
 import { svgToString } from "@/lib/tabard/svg-string";
 
 /** Captured from components/crest.tsx before tabard theming existed. */
@@ -23,12 +22,12 @@ const orderGuild = {
   tabardBackground: ORDER_TABARD.background,
   tabardBorder: ORDER_TABARD.border,
   tabardBorderStyle: ORDER_TABARD.borderStyle,
-  tabardEmblem: ORDER_TABARD.emblem,
   tabardEmblemColor: ORDER_TABARD.emblemColor,
+  tabardEmblemId: null,
   themeBase: "order" as const,
   themeOverrides: {},
 };
-const standardGuild = { ...orderGuild, slug: "silver-dawn", name: "Silver Dawn", themeBase: "tome" as const };
+const standardGuild = { ...orderGuild, slug: "silver-dawn", name: "Silver Dawn", tabardEmblemId: ORDER_TABARD.emblemId, themeBase: "tome" as const };
 
 /** On-page crests prefix their gradient ids per instance; drop the prefix to compare with the baseline's fixed ids. */
 const CREST_ID = /(id="|url\(#)crest-[A-Za-z0-9_-]+?-(gold|white|field|fold)(?=[")])/g;
@@ -93,13 +92,14 @@ describe("the Order of Saint Michael's look is unchanged", () => {
     expect(v(guild, "osm.guildbook.io")).not.toBe(v(guild));
     expect(v({ ...guild, verifiedAt: new Date() })).not.toBe(v(guild));
     expect(v({ ...guild, ruleset: "pvp" })).not.toBe(v(guild));
+    expect(v({ ...guild, region: "eu" })).not.toBe(v({ ...guild, region: "us" }));
     // The Order's stored tabard doesn't drive its art, so it doesn't version its preview.
-    expect(v({ ...guild, tabardEmblem: "lion" })).toBe(v(guild));
+    expect(v({ ...guild, tabardEmblemId: 128, tabardEmblemColor: 3 })).toBe(v(guild));
   });
 });
 
 describe("generic tabard crests", () => {
-  const tabards: TabardConfig[] = [DEFAULT_TABARD, { background: 25, border: 14, borderStyle: "studded", emblem: "wolf", emblemColor: 15 }];
+  const tabards: TabardConfig[] = [DEFAULT_TABARD, { background: 25, border: 14, borderStyle: "studded", emblemColor: 15, emblemId: 193, borderId: 4 }];
 
   it("give other guilds their tabard and versioned generated icons", () => {
     const brand = guildBrand(standardGuild);
@@ -110,32 +110,31 @@ describe("generic tabard crests", () => {
   it("version their link previews by tabard, base style and colour overrides", () => {
     const guild: PreviewGuild = { ...standardGuild, motto: null, faction: "horde", recruitmentOpen: true };
     const v = (g: PreviewGuild) => previewVersion(g, "silver-dawn.guildbook.io");
-    expect(v({ ...guild, tabardEmblem: "lion" })).not.toBe(v(guild));
+    expect(v({ ...guild, tabardEmblemId: 128 })).not.toBe(v(guild));
     expect(v({ ...guild, themeBase: "parchment" })).not.toBe(v(guild));
     expect(v({ ...guild, themeOverrides: { trim: "#ffffff" } })).not.toBe(v(guild));
     expect(guildPreviewImage(guild, "silver-dawn.guildbook.io").url).toBe(`/api/brand/silver-dawn/og.png?v=${v(guild)}`);
   });
 
-  it("render deterministically with no ids, gradients or long decimals", () => {
+  it("render deterministically with no gradients or long decimals, and only the emblem's tint filter as an id", () => {
     for (const tabard of tabards) {
       const html = renderToStaticMarkup(createElement(TabardCrest, { tabard, label: "x" }));
       expect(html).toBe(renderToStaticMarkup(createElement(TabardCrest, { tabard, label: "x" })));
-      expect(html).not.toMatch(/ id=|url\(|<defs|NaN|\d+\.\d{3,}/);
+      expect(html).not.toMatch(/Gradient|NaN|\d+\.\d{4,}/);
+      expect([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1])).toEqual([expect.stringMatching(/-emblem$/)]);
       for (const d of ["tiny", "mark", "full"]) expect(html).toContain(`data-detail="${d}"`);
     }
   });
 
-  it("render every emblem and border style at every detail", () => {
-    for (const e of EMBLEMS) {
-      for (const borderStyle of ["plain", "double", "wide", "studded", "stitched"] as const) {
-        const html = renderToStaticMarkup(createElement(TabardCrest, { tabard: { ...DEFAULT_TABARD, emblem: e.id, borderStyle }, label: e.name }));
-        expect(html, `${e.id} ${borderStyle}`).not.toMatch(/NaN|undefined/);
-      }
+  it("render every trim style at every detail", () => {
+    for (const borderStyle of BORDER_STYLE_IDS) {
+      const html = renderToStaticMarkup(createElement(TabardCrest, { tabard: { ...DEFAULT_TABARD, borderStyle }, label: borderStyle }));
+      expect(html, borderStyle).not.toMatch(/NaN|undefined/);
     }
   });
 
   it("serialize for the icon routes exactly as React renders them", () => {
-    const normalize = (s: string) => s.replace(/><\/(path|circle|rect|ellipse|line|polygon|polyline)>/g, "/>");
+    const normalize = (s: string) => s.replace(/><\/(path|circle|rect|ellipse|line|polygon|polyline|image|feFuncR|feFuncG|feFuncB)>/g, "/>");
     for (const tabard of tabards) {
       for (const detail of ["tiny", "mark", "full"] as TabardDetail[]) {
         const el = createElement(TabardArt, { tabard, detail, width: 100, height: 120 });

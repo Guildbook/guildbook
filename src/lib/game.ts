@@ -43,6 +43,21 @@ export type Faction = (typeof FACTIONS)[number];
 export const FACTION_LABELS: Record<Faction, string> = { alliance: "Alliance", horde: "Horde" };
 
 /**
+ * Battle.net regions Guildbook supports. Regions are separate worlds: characters, guilds and names exist per region,
+ * so a guild belongs to exactly one. Values are Blizzard's API region codes; Korea (`kr`) and Taiwan (`tw`) can be
+ * added here (and to the `region` database enum) later.
+ */
+export const REGIONS = ["us", "eu"] as const;
+export type Region = (typeof REGIONS)[number];
+export const REGION_LABELS: Record<Region, string> = { us: "Americas", eu: "Europe" };
+/** Compact tag for character lists. */
+export const REGION_TAGS: Record<Region, string> = { us: "US", eu: "EU" };
+export const REGION_INFO: Record<Region, { label: string; description: string }> = {
+  us: { label: "Americas", description: "North and South America and Oceania" },
+  eu: { label: "Europe", description: "Europe, Russia and the Middle East" },
+};
+
+/**
  * WoW: Forever rulesets. Forever has no realms: players pick a ruleset instead, and each ruleset is its own
  * ecosystem (no cross-ruleset grouping, factions still separate), so a guild belongs to exactly one.
  * Source: Blizzard, "Choose Your Ruleset in World of Warcraft: Forever"

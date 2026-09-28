@@ -13,6 +13,7 @@ export default async function AdminLayout({ children, params }: LayoutProps<"/[g
   const h = (p: string) => guildHref(slug, `/admin${p}`);
   const links: { href: string; label: string; exact?: boolean }[] = [
     { href: h(""), label: "Overview", exact: true },
+    ...(can(viewer.actor, "guild.settings") ? [{ href: h("/setup"), label: "Setup" }] : []),
     { href: h("/applications"), label: "Applications" },
     { href: h("/members"), label: "Members" },
     ...(can(viewer.actor, "rank.manage") ? [{ href: h("/ranks"), label: "Ranks" }] : []),

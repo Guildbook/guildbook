@@ -4,7 +4,7 @@ import { Panel, Tag } from "@/components/ui";
 import { VerifiedSeal } from "@/components/verified-seal";
 import { db } from "@/db";
 import { formatDate } from "@/lib/format";
-import { FACTION_LABELS, RULESET_INFO } from "@/lib/game";
+import { FACTION_LABELS, REGION_LABELS, RULESET_INFO } from "@/lib/game";
 import { VERIFICATION_GRACE_DAYS } from "@/lib/guild-identity";
 import { guildHref } from "@/lib/paths";
 import { claimGuildNameAction, claimGuildSlugAction, verifyGuildAction } from "@/server/actions/verification";
@@ -42,7 +42,7 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
           </Link>
           . One of their WoW: Forever characters must be Guild Master (rank 0) of an in-game guild named exactly{" "}
           <strong className="text-bone">{guild.name}</strong>, {FACTION_LABELS[guild.faction]}, on the{" "}
-          {RULESET_INFO[guild.ruleset].label} ruleset. Guildbook checks again every day; after {VERIFICATION_GRACE_DAYS} days of
+          {RULESET_INFO[guild.ruleset].label} ruleset in the {REGION_LABELS[guild.region]} region. Guildbook checks again every day; after {VERIFICATION_GRACE_DAYS} days of
           failed checks the seal is removed.
         </p>
 
@@ -86,7 +86,7 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
             <h3 className="font-display text-sm tracking-wide text-gold">Your in-game guild is {claim.name}</h3>
             {claim.holderVerified ? (
               <p className="text-muted">
-                A verified guild on Guildbook already uses that name, faction and ruleset, so it can&apos;t be claimed. Contact the
+                A verified guild on Guildbook already uses that name, region, faction and ruleset, so it can&apos;t be claimed. Contact the
                 Guildbook team if you think this is a mistake.
               </p>
             ) : (
@@ -119,7 +119,7 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
             <h3 className="font-display text-sm tracking-wide text-gold">Subdomain</h3>
             <p className="text-muted">
               {slugClaim.holderName
-                ? `${claimHost} matches your guild's name and is held by an unverified guild, ${slugClaim.holderName}. As a verified guild you can claim it: that guild moves to a numbered subdomain and its admins are told why.`
+                ? `${claimHost} matches your guild's name and is held by an unverified guild, ${slugClaim.holderName}. As a verified guild you can claim it: that guild moves to ${slugClaim.holderMovesTo ?? "another subdomain"} and its admins are told why.`
                 : `${claimHost} matches your guild's name and is free.`}{" "}
               Your current subdomain is released and won&apos;t redirect, so update links you&apos;ve shared (and re-pair Vigil
               companions). Custom domains keep working.

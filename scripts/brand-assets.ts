@@ -20,8 +20,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CrestArt, type CrestDetail } from "../src/components/crest";
 import { GuildbookMarkArt } from "../src/components/guildbook-mark";
-import { TabardArt } from "../src/components/tabard-crest";
+import { TabardArt, tabardColors } from "../src/components/tabard-art";
 import type { TabardConfig } from "../src/lib/tabard/config";
+import { emblemFile } from "../src/lib/tabard/crest";
+import { tintedDataUri } from "../src/lib/tabard/tint-png";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FONTS = ["Cinzel-Regular.ttf", "Cinzel-Bold.ttf", "CinzelDecorative-Bold.ttf"].map((f) => path.join(ROOT, "scripts/fonts", f));
@@ -124,14 +126,15 @@ function markTile(px: number, fill: number, radius = 0.22) {
 
 /** Example tabards for the apex preview's row of banners, beside the Order's crest. */
 const EXAMPLE_TABARDS: TabardConfig[] = [
-  { background: 32, border: 14, borderStyle: "double", emblem: "lion", emblemColor: 14 },
-  { background: 26, border: 16, borderStyle: "plain", emblem: "tree", emblemColor: 3 },
+  { background: 32, border: 14, borderStyle: "double", emblemColor: 14, emblemId: 128 },
+  { background: 26, border: 16, borderStyle: "plain", emblemColor: 3, emblemId: 34 },
 ];
 
 /** A generic tabard crest `height` pixels tall, horizontally centered on `cx` with its top at `y`. */
 function tabard(t: TabardConfig, height: number, cx: number, y: number) {
   const width = height * ASPECT;
-  const markup = renderToStaticMarkup(createElement(TabardArt, { tabard: t, detail: detailAt(width), width, height }));
+  const emblem = tintedDataUri(readFileSync(path.join(ROOT, "public", emblemFile(t.emblemId))), tabardColors(t).emblem);
+  const markup = renderToStaticMarkup(createElement(TabardArt, { tabard: t, detail: detailAt(width), width, height, images: { mode: "tinted", emblem } }));
   return markup.replace("<svg ", `<svg x="${cx - width / 2}" y="${y}" `);
 }
 

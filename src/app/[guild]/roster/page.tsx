@@ -6,6 +6,7 @@ import { RankInsignia } from "@/components/rank-insignia";
 import { CharacterLink, ClassName, EmptyState, FactionBadge, PageHeader, RoleBadge, VerifiedMark } from "@/components/ui";
 import { db } from "@/db";
 import { CLASS_INFO, CLASSES, FACTION_LABELS, FACTIONS, type Faction } from "@/lib/game";
+import { guildWording } from "@/lib/guild-wording";
 import { insigniaFor } from "@/lib/insignia";
 import { guildHref } from "@/lib/paths";
 import { getGuild } from "@/server/context";
@@ -28,7 +29,7 @@ export default async function RosterPage({ params, searchParams }: PageProps<"/[
 
   return (
     <div>
-      <PageHeader title="Roster" eyebrow={`${roster.length} brothers and sisters in arms`} />
+      <PageHeader title="Roster" eyebrow={guildWording(guild).rosterEyebrow(roster.length)} />
       {multiFaction && (
         <div className="mb-6 flex justify-center gap-2">
           {[undefined, ...FACTIONS].map((f) => (

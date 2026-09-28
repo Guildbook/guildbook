@@ -5,7 +5,7 @@ import { PageHeader, Panel } from "@/components/ui";
 import { db } from "@/db";
 import { RANK_TIERS, type RankTier, TIER_LABELS } from "@/lib/authz/tiers";
 import { MAX_IN_GAME_RANKS } from "@/lib/game";
-import { DEFAULT_INSIGNIA_BY_TIER, INSIGNIA, INSIGNIA_INFO, insigniaFor } from "@/lib/insignia";
+import { DEFAULT_INSIGNIA_BY_TIER, INSIGNIA, INSIGNIA_INFO, insigniaFor, insigniaMeaning } from "@/lib/insignia";
 import { guildHref } from "@/lib/paths";
 import {
   createRankAction,
@@ -19,7 +19,7 @@ import { listRanks } from "@/server/services/ranks";
 
 export const metadata: Metadata = { title: "Ranks" };
 
-function InsigniaPicker({ value, tier }: { value: string | null; tier: RankTier }) {
+function InsigniaPicker({ value, tier, preset }: { value: string | null; tier: RankTier; preset: string }) {
   const options = [
     { key: "", label: `Tier default (${INSIGNIA_INFO[DEFAULT_INSIGNIA_BY_TIER[tier]].label})`, insignia: DEFAULT_INSIGNIA_BY_TIER[tier] },
     ...INSIGNIA.map((key) => ({ key, label: INSIGNIA_INFO[key].label, insignia: key })),
@@ -31,7 +31,7 @@ function InsigniaPicker({ value, tier }: { value: string | null; tier: RankTier 
         {options.map((o) => (
           <label
             key={o.key || "default"}
-            title={INSIGNIA_INFO[o.insignia].meaning}
+            title={insigniaMeaning(o.insignia, { preset })}
             className="relative flex cursor-pointer flex-col items-center gap-1 rounded border border-line p-2 text-center text-[11px] leading-tight text-muted hover:border-gold-dim has-[:checked]:border-gold has-[:checked]:text-gold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gold"
           >
             <input type="radio" name="insignia" value={o.key} defaultChecked={(value ?? "") === o.key} className="sr-only" />
@@ -45,8 +45,10 @@ function InsigniaPicker({ value, tier }: { value: string | null; tier: RankTier 
 }
 
 function RankFields({
+  preset,
   defaults,
 }: {
+  preset: string;
   defaults?: { name: string; description: string; tier: RankTier; insignia: string | null; inGame: boolean };
 }) {
   return (
@@ -72,7 +74,7 @@ function RankFields({
           In-game
         </label>
       </div>
-      <InsigniaPicker value={defaults?.insignia ?? null} tier={defaults?.tier ?? "member"} />
+      <InsigniaPicker value={defaults?.insignia ?? null} tier={defaults?.tier ?? "member"} preset={preset} />
     </div>
   );
 }
@@ -87,6 +89,8 @@ export default async function RanksPage({ params }: PageProps<"/[guild]/admin/ra
     <div className="space-y-6">
       <PageHeader title="Ranks" eyebrow={`${inGameCount} of ${MAX_IN_GAME_RANKS} in-game ranks used`}>
         The permission tier decides what a rank can do. Renaming or reordering a rank does not change its permissions.
+        List ranks from highest to lowest, as in game, where a guild has up to {MAX_IN_GAME_RANKS} ranks of up to 15
+        characters each.
       </PageHeader>
 
       <ol className="space-y-3">
@@ -117,7 +121,7 @@ export default async function RanksPage({ params }: PageProps<"/[guild]/admin/ra
               </div>
             </div>
             <ActionForm action={updateRankAction.bind(null, slug, r.id)} className="space-y-2">
-              <RankFields defaults={r} />
+              <RankFields preset={guild.preset} defaults={r} />
               <div className="flex items-center gap-3">
                 <SubmitButton variant="ghost" size="sm">
                   Save
@@ -130,8 +134,8 @@ export default async function RanksPage({ params }: PageProps<"/[guild]/admin/ra
       </ol>
 
       <Panel title="Add rank">
-        <ActionForm action={createRankAction.bind(null, slug)} className="space-y-3" resetOnSuccess>
-          <RankFields />
+        <ActionForm action={createRankAction.bind(null, slug)} className="space-y-3">
+          <RankFields preset={guild.preset} />
           <FormMessage />
           <SubmitButton>Add rank</SubmitButton>
         </ActionForm>

@@ -3,6 +3,7 @@ import { EmptyState, FactionBadge, PageHeader, Panel } from "@/components/ui";
 import { db } from "@/db";
 import { type Faction, FACTION_LABELS, FACTIONS } from "@/lib/game";
 import { formatDate } from "@/lib/format";
+import { guildWording } from "@/lib/guild-wording";
 import { getGuild } from "@/server/context";
 import { guildSocialMetadata } from "@/server/guild-metadata";
 import { getProgression } from "@/server/services/content";
@@ -20,7 +21,7 @@ export default async function ProgressionPage({ params }: PageProps<"/[guild]/pr
 
   return (
     <div>
-      <PageHeader title="Progression" eyebrow="Deeds of the Order" />
+      <PageHeader title="Progression" eyebrow={guildWording(guild).progressionEyebrow} />
       {progression.length === 0 && <EmptyState>No raids tracked yet.</EmptyState>}
       <div className="grid gap-6 lg:grid-cols-2">
         {progression.map((instance) => {

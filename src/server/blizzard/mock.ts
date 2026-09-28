@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
+import type { Region } from "@/lib/game";
 import type { FetchLike } from "./client";
+import { namespaceFor, namespaceTemplate } from "./config";
 
 /**
- * BATTLENET_MOCK=1: a fake Battle.net for dev and e2e. It answers the same URLs the real client calls, so the
- * parsing and filtering code runs unchanged. Each linking user gets their own account (derived from the
- * `mock-<seed>` authorization code) holding the fixture characters below, with account-unique character IDs.
+ * BATTLENET_MOCK=1: a fake Battle.net for dev and e2e. It answers the same URLs the real client calls, on both the
+ * US and EU API hosts, so the parsing and filtering code runs unchanged. Each linking user gets their own account
+ * (derived from the `mock-<seed>` authorization code) holding the fixture characters below: the US ones, plus one EU
+ * character, with account-unique character IDs. A seed containing `eu-forbidden` gets 403 on every EU profile read,
+ * as for an account without a European licence.
  */
 
 interface MockRealm {
@@ -44,9 +48,28 @@ export const MOCK_CHARACTERS: readonly MockCharacter[] = [
 ];
 
 const DREAMSCYTHE: MockRealm = { id: 6225, slug: "dreamscythe", name: "Dreamscythe", type: "NORMAL" };
-const REALMS = [CRUSADERS_REACH, SILVERPINE, DREAMSCYTHE];
+const HOLLOWMERE: MockRealm = { id: 7101, slug: "hollowmere", name: "Hollowmere", type: "NORMAL" };
+const REALMS: Record<Region, MockRealm[]> = { us: [CRUSADERS_REACH, SILVERPINE, DREAMSCYTHE], eu: [HOLLOWMERE] };
+
+/** On an EU Forever realm: listed for EU guilds only. */
+export const MOCK_EU_CHARACTERS: readonly MockCharacter[] = [
+  { name: "Isolde", level: 52, currentLevel: 52, classId: 2, className: "Paladin", raceId: 3, race: "Dwarf", faction: "ALLIANCE", realm: HOLLOWMERE, guild: null },
+];
+const EU_INDEX = 50;
+
+const charactersIn = (region: Region) => (region === "us" ? MOCK_CHARACTERS : MOCK_EU_CHARACTERS);
+const indexOffset = (region: Region) => (region === "us" ? 0 : EU_INDEX);
 
 const mockGuildSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
+
+/** In-game tabards by guild name, as the guild endpoint's `crest` (the game's colour ids and RGBA). */
+export const MOCK_GUILD_CRESTS: Record<string, unknown> = {
+  "Order of Saint Michael": {
+    emblem: { id: 97, media: { id: 97 }, color: { id: 14, rgba: { r: 177, g: 184, b: 177, a: 1 } } },
+    border: { id: 0, media: { id: 0 }, color: { id: 3, rgba: { r: 103, g: 86, b: 0, a: 1 } } },
+    background: { color: { id: 2, rgba: { r: 158, g: 0, b: 54, a: 1 } } },
+  },
+};
 
 /** On a Classic Anniversary realm, served from `profile-classicann-*`: listed on the account but never importable. */
 export const MOCK_ANNIVERSARY_CHARACTER: MockCharacter = {
@@ -79,7 +102,7 @@ function mockCharacterId(seed: string, index: number): string {
 const registry: Map<string, string> = ((globalThis as { __bnetMockRegistry?: Map<string, string> }).__bnetMockRegistry ??=
   new Map());
 
-const key = (realmSlug: string, name: string) => `${realmSlug}/${name.toLowerCase()}`;
+const key = (region: Region, realmSlug: string, name: string) => `${region}/${realmSlug}/${name.toLowerCase()}`;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -106,14 +129,25 @@ function characterJson(seed: string, c: MockCharacter, index: number) {
   };
 }
 
+/** `https://eu.api.blizzard.com/...` to `eu`; the OAuth host and anything else to `us`. */
+function regionOf(u: URL): Region {
+  return u.hostname.startsWith("eu.") ? "eu" : "us";
+}
+
 /**
- * The fixture characters live in `foreverNamespace` (the configured profile namespace); one Anniversary character
- * lives in `profile-classicann-*`; every other namespace answers 404, as Blizzard does for a game with no characters.
+ * The fixture characters live in the configured profile namespace (a template or concrete name, see
+ * `namespaceTemplate`) of their region; one Anniversary character lives in `profile-classicann-us`; every other
+ * namespace answers 404, as Blizzard does for a game with no characters.
  */
-export function createMockFetch(foreverNamespace = "profile-classic1x-us"): FetchLike {
+export function createMockFetch(profileNamespace = "profile-classic1x-{region}"): FetchLike {
+  const template = namespaceTemplate(profileNamespace);
   return async (url, init) => {
     const u = new URL(url);
     const path = u.pathname;
+    const region = regionOf(u);
+    const foreverNamespace = namespaceFor(template, region);
+    const offset = indexOffset(region);
+    const fixtures = charactersIn(region);
 
     if (path.endsWith("/token")) {
       const body = new URLSearchParams(typeof init?.body === "string" ? init.body : (init?.body as URLSearchParams | undefined));
@@ -134,14 +168,15 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
       const seed = userSeed(token);
       if (!seed) return json({}, 401);
       const namespace = u.searchParams.get("namespace") ?? "";
-      if (namespace.startsWith("profile-classicann-") && namespace !== foreverNamespace) {
+      if (region === "eu" && seed.includes("eu-forbidden")) return json({ code: 403, detail: "Forbidden" }, 403);
+      if (region === "us" && namespace.startsWith("profile-classicann-") && namespace !== foreverNamespace) {
         const characters = [characterJson(seed, MOCK_ANNIVERSARY_CHARACTER, ANNIVERSARY_INDEX)];
         return json({ id: Number(mockAccountId(seed)), wow_accounts: [{ id: 2, characters }] });
       }
       if (namespace !== foreverNamespace) return json({ code: 404, detail: "Not Found" }, 404);
-      const characters = MOCK_CHARACTERS.map((c, i) => {
-        registry.set(key(c.realm.slug, c.name), mockCharacterId(seed, i));
-        return characterJson(seed, c, i);
+      const characters = fixtures.map((c, i) => {
+        registry.set(key(region, c.realm.slug, c.name), mockCharacterId(seed, offset + i));
+        return characterJson(seed, c, offset + i);
       });
       return json({ id: Number(mockAccountId(seed)), wow_accounts: [{ id: 1, characters }] });
     }
@@ -149,10 +184,10 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
     const profile = path.match(/^\/profile\/wow\/character\/([^/]+)\/([^/]+)$/);
     if (profile) {
       const [, realmSlug, name] = profile.map(decodeURIComponent) as [string, string, string];
-      const index = MOCK_CHARACTERS.findIndex((c) => c.realm.slug === realmSlug && c.name.toLowerCase() === name);
-      const c = MOCK_CHARACTERS[index];
+      const index = fixtures.findIndex((c) => c.realm.slug === realmSlug && c.name.toLowerCase() === name);
+      const c = fixtures[index];
       const seed = userSeed(token);
-      const id = seed ? mockCharacterId(seed, index) : registry.get(key(realmSlug, name));
+      const id = seed ? mockCharacterId(seed, offset + index) : registry.get(key(region, realmSlug, name));
       if (!c || !id) return json({ code: 404 }, 404);
       return json({
         id: Number(id),
@@ -177,7 +212,7 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
 
     const realm = path.match(/^\/data\/wow\/realm\/([^/]+)$/);
     if (realm) {
-      const r = REALMS.find((x) => x.slug === decodeURIComponent(realm[1]!));
+      const r = REALMS[region].find((x) => x.slug === decodeURIComponent(realm[1]!));
       if (!r) return json({ code: 404 }, 404);
       return json({ id: r.id, slug: r.slug, name: r.name, type: { type: r.type, name: r.type === "PVP" ? "PvP" : "Normal" } });
     }
@@ -185,9 +220,9 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
     const roster = path.match(/^\/data\/wow\/guild\/([^/]+)\/([^/]+)\/roster$/);
     if (roster) {
       const [, realmSlug, guildSlug] = roster.map(decodeURIComponent) as [string, string, string];
-      const members = MOCK_CHARACTERS.flatMap((c) => {
+      const members = fixtures.flatMap((c) => {
         if (!c.guild || c.realm.slug !== realmSlug || mockGuildSlug(c.guild) !== guildSlug) return [];
-        const id = registry.get(key(c.realm.slug, c.name));
+        const id = registry.get(key(region, c.realm.slug, c.name));
         if (!id) return [];
         return [
           {
@@ -204,7 +239,20 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
         ];
       });
       if (members.length === 0) return json({ code: 404 }, 404);
-      return json({ guild: { name: MOCK_CHARACTERS.find((c) => c.guild && mockGuildSlug(c.guild) === guildSlug)?.guild }, members });
+      return json({ guild: { name: fixtures.find((c) => c.guild && mockGuildSlug(c.guild) === guildSlug)?.guild }, members });
+    }
+
+    const guild = path.match(/^\/data\/wow\/guild\/([^/]+)\/([^/]+)$/);
+    if (guild) {
+      const [, realmSlug, guildSlug] = guild.map(decodeURIComponent) as [string, string, string];
+      const member = fixtures.find((c) => c.guild && c.realm.slug === realmSlug && mockGuildSlug(c.guild) === guildSlug);
+      if (!member?.guild) return json({ code: 404 }, 404);
+      return json({
+        name: member.guild,
+        realm: { slug: member.realm.slug, name: member.realm.name },
+        faction: { type: member.faction },
+        ...(MOCK_GUILD_CRESTS[member.guild] ? { crest: MOCK_GUILD_CRESTS[member.guild] } : {}),
+      });
     }
 
     return json({ code: 404, detail: "Not Found" }, 404);

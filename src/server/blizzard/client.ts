@@ -1,7 +1,7 @@
 import type { BattlenetCharacterSnapshot, BattlenetExcludedGroup, BattlenetNamespaceScan, BattlenetScan } from "@/db/schema";
-import { type Faction, RULESET_BY_REALM_TYPE, type Ruleset, type WowClass } from "@/lib/game";
+import { type Faction, type Region, RULESET_BY_REALM_TYPE, type Ruleset, type WowClass } from "@/lib/game";
 import { isForeverCharacter, knownGameVersion } from "@/lib/wow-versions";
-import { apiHost, type BlizzardConfig, oauthHost } from "./config";
+import { apiHost, type BlizzardConfig, configuredRealmRuleset, namespaceFor, oauthHost, realmSlugsFor } from "./config";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -54,6 +54,25 @@ export type RosterLookup =
   | { status: "forbidden" }
   | { status: "error" };
 export type RealmRulesetLookup = { status: "ok"; ruleset: Ruleset | null; realmType: string | null } | { status: "error" };
+
+/** One colour of a guild crest: the game's colour id and, when Blizzard sends it, its RGB. */
+export interface CrestColor {
+  id: number;
+  rgb: [number, number, number] | null;
+}
+
+/** A guild's in-game tabard, from the guild endpoint's `crest`. */
+export interface InGameCrest {
+  emblem: { id: number; color: CrestColor };
+  border: { id: number; color: CrestColor };
+  background: { color: CrestColor };
+}
+
+export type GuildLookup =
+  | { status: "ok"; name: string; crest: InGameCrest | null }
+  | { status: "not_found" }
+  | { status: "forbidden" }
+  | { status: "error" };
 
 export interface BlizzardItem {
   itemId: number;
@@ -214,11 +233,12 @@ function parseAccountEntries(json: unknown): AccountEntry[] {
   return out;
 }
 
-function toSnapshot(e: AccountEntry): BattlenetCharacterSnapshot | null {
+function toSnapshot(e: AccountEntry, region?: Region): BattlenetCharacterSnapshot | null {
   const wowClass = e.classId != null ? CLASS_BY_ID[e.classId] : undefined;
   if (e.level == null || e.level < 1 || !wowClass || !e.faction) return null;
   return {
     id: String(e.id),
+    ...(region ? { region } : {}),
     name: e.name,
     surname: e.surname,
     realmSlug: e.realmSlug,
@@ -237,6 +257,7 @@ export function parseAccountCharacters(json: unknown): BattlenetCharacterSnapsho
 }
 
 interface NamespaceRead extends BattlenetNamespaceScan {
+  region: Region;
   entries: AccountEntry[];
 }
 
@@ -300,6 +321,29 @@ export function parseRealmType(json: unknown): { ruleset: Ruleset | null; realmT
   return { ruleset: realmType ? (RULESET_BY_REALM_TYPE[realmType] ?? null) : null, realmType };
 }
 
+function parseCrestColor(value: unknown): CrestColor | null {
+  const color = obj(value);
+  const id = num(color?.id);
+  if (id == null) return null;
+  const rgba = obj(color?.rgba);
+  const [r, g, b] = [num(rgba?.r), num(rgba?.g), num(rgba?.b)];
+  return { id, rgb: r != null && g != null && b != null ? [r, g, b] : null };
+}
+
+/** The guild endpoint's `crest` (emblem and border ids with colours, and the background colour). Null if absent or partial. */
+export function parseGuildCrest(json: unknown): InGameCrest | null {
+  const crest = obj(obj(json)?.crest);
+  const emblem = obj(crest?.emblem);
+  const border = obj(crest?.border);
+  const emblemId = num(emblem?.id);
+  const borderId = num(border?.id);
+  const emblemColor = parseCrestColor(emblem?.color);
+  const borderColor = parseCrestColor(border?.color);
+  const background = parseCrestColor(obj(crest?.background)?.color);
+  if (emblemId == null || borderId == null || !emblemColor || !borderColor || !background) return null;
+  return { emblem: { id: emblemId, color: emblemColor }, border: { id: borderId, color: borderColor }, background: { color: background } };
+}
+
 export function parseGuildRoster(json: unknown): RosterMember[] {
   const members = obj(json)?.members;
   if (!Array.isArray(members)) return [];
@@ -345,7 +389,7 @@ export class BlizzardClient {
   ) {}
 
   authorizeUrl(state: string, redirectUri: string): string {
-    const url = new URL("/authorize", oauthHost(this.config.region));
+    const url = new URL("/authorize", oauthHost());
     url.searchParams.set("client_id", this.config.clientId ?? "");
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
@@ -359,7 +403,7 @@ export class BlizzardClient {
     if (!this.config.mock && (!clientId || !clientSecret)) {
       throw new BlizzardApiError("BATTLENET_CLIENT_ID and BATTLENET_CLIENT_SECRET are not set", 0);
     }
-    const res = await this.fetchImpl(`${oauthHost(this.config.region)}/token`, {
+    const res = await this.fetchImpl(`${oauthHost()}/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${Buffer.from(`${clientId ?? ""}:${clientSecret ?? ""}`).toString("base64")}`,
@@ -388,7 +432,7 @@ export class BlizzardClient {
   }
 
   async getUserInfo(accessToken: string): Promise<{ id: string; battletag: string }> {
-    const res = await this.fetchImpl(`${oauthHost(this.config.region)}/userinfo`, {
+    const res = await this.fetchImpl(`${oauthHost()}/userinfo`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
@@ -400,24 +444,27 @@ export class BlizzardClient {
     return { id: String(id), battletag: battletag ?? `Account ${id}` };
   }
 
-  private profileUrl(path: string, namespace = this.config.profileNamespace): string {
-    const url = new URL(path, apiHost(this.config.region));
-    url.searchParams.set("namespace", namespace);
+  /** `template` is a namespace template (see `BlizzardConfig`), resolved for `region`. */
+  private apiUrl(region: Region, path: string, template: string): string {
+    const url = new URL(path, apiHost(region));
+    url.searchParams.set("namespace", namespaceFor(template, region));
     url.searchParams.set("locale", this.config.locale);
     return url.toString();
   }
 
-  private get(path: string, token: string, namespace?: string): Promise<Response> {
-    return this.fetchImpl(this.profileUrl(path, namespace), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  private get(region: Region, path: string, token: string, template = this.config.profileNamespace): Promise<Response> {
+    return this.fetchImpl(this.apiUrl(region, path, template), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
   }
 
   /**
    * The account's characters in one namespace. 404 (no characters in this game) and an empty list are "empty";
-   * 401/403 (scope not granted, or a namespace Blizzard doesn't serve) is "forbidden".
+   * 401/403 (scope not granted, a namespace Blizzard doesn't serve, or no licence in that region) is "forbidden".
    */
-  private async readNamespace(namespace: string, accessToken: string): Promise<NamespaceRead> {
+  private async readNamespace(region: Region, template: string, accessToken: string): Promise<NamespaceRead> {
+    const namespace = namespaceFor(template, region);
     const result = (status: NamespaceRead["status"], httpStatus: number, entries: AccountEntry[] = []): NamespaceRead => ({
       namespace,
+      region,
       status,
       httpStatus,
       characters: entries.length,
@@ -425,7 +472,7 @@ export class BlizzardClient {
     });
     let res: Response;
     try {
-      res = await this.get("/profile/user/wow", accessToken, namespace);
+      res = await this.get(region, "/profile/user/wow", accessToken, template);
     } catch {
       return result("error", 0);
     }
@@ -441,22 +488,28 @@ export class BlizzardClient {
   }
 
   /**
-   * Reads every scan namespace and keeps the WoW: Forever characters (see `isForeverCharacter`). The rest are
-   * summarised by game and faction in `scan`, so an empty result can say what the account does have. The status
-   * follows the Forever namespace, except that "forbidden" needs every namespace refused: a 403 on the Forever
-   * namespace alone means Blizzard doesn't serve it (yet), not that access was denied.
+   * Reads every scan namespace in every configured region and keeps the WoW: Forever characters (see
+   * `isForeverCharacter`), each tagged with its region. The rest are summarised by game and faction in `scan`, so an
+   * empty result can say what the account does have. Regions fail independently: a 403/404 or an outage in one region
+   * (no licence there, say) doesn't hide the other's characters. With no characters at all, "forbidden" needs every
+   * namespace refused (a 403 on a Forever namespace alone means Blizzard doesn't serve it yet), and "error" means a
+   * region's Forever namespace failed, so its characters may be missing.
    */
   async getAccountCharacters(accessToken: string): Promise<CharacterListResult> {
-    const forever = { namespace: this.config.profileNamespace, realmSlugs: this.config.realmSlugs };
-    const namespaces = [...new Set([forever.namespace, ...this.config.scanNamespaces])];
-    const reads = await Promise.all(namespaces.map((ns) => this.readNamespace(ns, accessToken)));
+    const templates = [...new Set([this.config.profileNamespace, ...this.config.scanNamespaces])];
+    const regions = this.config.regions;
+    const forever = (region: Region) => ({
+      namespace: namespaceFor(this.config.profileNamespace, region),
+      realmSlugs: realmSlugsFor(this.config, region),
+    });
+    const reads = await Promise.all(regions.flatMap((region) => templates.map((t) => this.readNamespace(region, t, accessToken))));
 
     const characters: BattlenetCharacterSnapshot[] = [];
     const excluded = new Map<string, BattlenetExcludedGroup>();
     for (const read of reads) {
       for (const entry of read.entries) {
-        if (isForeverCharacter({ namespace: read.namespace, realmSlug: entry.realmSlug }, forever)) {
-          const snapshot = toSnapshot(entry);
+        if (isForeverCharacter({ namespace: read.namespace, realmSlug: entry.realmSlug }, forever(read.region))) {
+          const snapshot = toSnapshot(entry, read.region);
           if (snapshot) characters.push(snapshot);
           continue;
         }
@@ -468,56 +521,56 @@ export class BlizzardClient {
         excluded.set(key, group);
       }
     }
+    const foreverNamespaces = regions.map((r) => forever(r).namespace);
     const scan: BattlenetScan = {
-      foreverNamespace: forever.namespace,
+      foreverNamespace: foreverNamespaces[0] ?? namespaceFor(this.config.profileNamespace, this.config.region),
+      foreverNamespaces,
       namespaces: reads.map(({ entries: _entries, ...n }) => n),
       excluded: [...excluded.values()].sort((a, b) => b.count - a.count),
     };
 
-    const foreverRead = reads.find((r) => r.namespace === forever.namespace);
     if (characters.length === 0) {
-      const status: SnapshotStatus = reads.every((r) => r.status === "forbidden")
-        ? "forbidden"
-        : foreverRead?.status === "error"
-          ? "error"
-          : "empty";
+      const foreverFailed = reads.some((r) => foreverNamespaces.includes(r.namespace) && r.status === "error");
+      const status: SnapshotStatus = reads.every((r) => r.status === "forbidden") ? "forbidden" : foreverFailed ? "error" : "empty";
       return { status, characters, scan };
     }
 
     // The account list has no guild (or surname); the character profile does. Best effort only.
     await Promise.all(
       characters.slice(0, MAX_PROFILE_ENRICH).map(async (c, i) => {
-        const profile = await this.getCharacterProfile(c.realmSlug, c.name, accessToken).catch(() => null);
+        const profile = await this.getCharacterProfile(c.region ?? this.config.region, c.realmSlug, c.name, accessToken).catch(() => null);
         if (profile && profile.id === c.id) {
           characters[i] = { ...c, guildName: profile.guildName, surname: c.surname ?? profile.surname };
         }
       }),
     );
     // Which ruleset each realm is, so a guild only offers characters from its own ruleset. Best effort only.
-    const realms = [...new Set(characters.map((c) => c.realmSlug.toLowerCase()))].slice(0, MAX_PROFILE_ENRICH);
+    const realmKey = (c: BattlenetCharacterSnapshot) => `${c.region ?? this.config.region}:${c.realmSlug.toLowerCase()}`;
+    const realms = [...new Set(characters.map(realmKey))].slice(0, MAX_PROFILE_ENRICH);
     const rulesets = new Map<string, Ruleset | null>();
     await Promise.all(
-      realms.map(async (slug) => {
-        const lookup = await this.getRealmRuleset(slug).catch(() => null);
-        rulesets.set(slug, lookup?.status === "ok" ? lookup.ruleset : null);
+      realms.map(async (key) => {
+        const [region, slug] = key.split(":") as [Region, string];
+        const lookup = await this.getRealmRuleset(region, slug).catch(() => null);
+        rulesets.set(key, lookup?.status === "ok" ? lookup.ruleset : null);
       }),
     );
-    for (const [i, c] of characters.entries()) characters[i] = { ...c, ruleset: rulesets.get(c.realmSlug.toLowerCase()) ?? null };
+    for (const [i, c] of characters.entries()) characters[i] = { ...c, ruleset: rulesets.get(realmKey(c)) ?? null };
     return { status: "ok", characters, scan };
   }
 
   /** A public character profile. Null when it doesn't exist, isn't public, or the request fails. */
-  async getCharacterProfile(realmSlug: string, name: string, accessToken?: string): Promise<CharacterProfile | null> {
+  async getCharacterProfile(region: Region, realmSlug: string, name: string, accessToken?: string): Promise<CharacterProfile | null> {
     const token = accessToken ?? (await this.appToken());
-    const res = await this.get(characterPath(realmSlug, name), token);
+    const res = await this.get(region, characterPath(realmSlug, name), token);
     if (!res.ok) return null;
     return parseCharacterProfile(await res.json().catch(() => null));
   }
 
   /** Like `getCharacterProfile` with an app token, but tells "gone or private" (404/403) apart from a failed request. */
-  async lookupCharacterProfile(realmSlug: string, name: string): Promise<ProfileLookup> {
+  async lookupCharacterProfile(region: Region, realmSlug: string, name: string): Promise<ProfileLookup> {
     try {
-      const res = await this.get(characterPath(realmSlug, name), await this.appToken());
+      const res = await this.get(region, characterPath(realmSlug, name), await this.appToken());
       if (res.status === 404 || res.status === 403) return { status: "missing" };
       if (!res.ok) return { status: "error" };
       const profile = parseCharacterProfile(await res.json().catch(() => null));
@@ -529,24 +582,25 @@ export class BlizzardClient {
 
   /**
    * The ruleset of a realm: `BATTLENET_REALM_RULESETS` first, then the Game Data realm's type
-   * (`/data/wow/realm/{realmSlug}` in the dynamic namespace). Cached for the life of the client.
+   * (`/data/wow/realm/{realmSlug}` in the region's dynamic namespace). Cached per region for the life of the client.
    */
-  async getRealmRuleset(realmSlug: string): Promise<RealmRulesetLookup> {
+  async getRealmRuleset(region: Region, realmSlug: string): Promise<RealmRulesetLookup> {
     const slug = realmSlug.toLowerCase();
-    const configured = this.config.realmRulesets[slug];
+    const configured = configuredRealmRuleset(this.config, region, slug);
     if (configured) return { status: "ok", ruleset: configured, realmType: null };
-    const cached = this.realmRulesets.get(slug);
+    const cacheKey = `${region}:${slug}`;
+    const cached = this.realmRulesets.get(cacheKey);
     if (cached) return { status: "ok", ...cached };
     try {
-      const res = await this.get(`/data/wow/realm/${encodeURIComponent(slug)}`, await this.appToken(), this.config.dynamicNamespace);
+      const res = await this.get(region, `/data/wow/realm/${encodeURIComponent(slug)}`, await this.appToken(), this.config.dynamicNamespace);
       if (res.status === 404) {
         const unknown = { ruleset: null, realmType: null };
-        this.realmRulesets.set(slug, unknown);
+        this.realmRulesets.set(cacheKey, unknown);
         return { status: "ok", ...unknown };
       }
       if (!res.ok) return { status: "error" };
       const parsed = parseRealmType(await res.json().catch(() => null));
-      this.realmRulesets.set(slug, parsed);
+      this.realmRulesets.set(cacheKey, parsed);
       return { status: "ok", ...parsed };
     } catch {
       return { status: "error" };
@@ -554,9 +608,10 @@ export class BlizzardClient {
   }
 
   /** The in-game guild roster with ranks. Blizzard answers 403 for some existing Classic guilds, so that is its own status. */
-  async lookupGuildRoster(realmSlug: string, nameSlug: string): Promise<RosterLookup> {
+  async lookupGuildRoster(region: Region, realmSlug: string, nameSlug: string): Promise<RosterLookup> {
     try {
       const res = await this.get(
+        region,
         `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}/roster`,
         await this.appToken(),
       );
@@ -571,16 +626,27 @@ export class BlizzardClient {
     }
   }
 
-  /** An item's name, quality, level and icon from the Game Data API, in the configured static namespace. */
+  /** A guild's profile, for its name and tabard (`/data/wow/guild/{realmSlug}/{nameSlug}`, profile namespace, app token). */
+  async lookupGuild(region: Region, realmSlug: string, nameSlug: string): Promise<GuildLookup> {
+    try {
+      const res = await this.get(region, `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}`, await this.appToken());
+      if (res.status === 404) return { status: "not_found" };
+      if (res.status === 401 || res.status === 403) return { status: "forbidden" };
+      if (!res.ok) return { status: "error" };
+      const json = await res.json().catch(() => null);
+      const name = localized(obj(json)?.name);
+      if (!name) return { status: "error" };
+      return { status: "ok", name, crest: parseGuildCrest(json) };
+    } catch {
+      return { status: "error" };
+    }
+  }
+
+  /** An item's name, quality, level and icon from the Game Data API, in the default region's static namespace. */
   async getItem(itemId: number): Promise<ItemLookup> {
     try {
       const token = await this.appToken();
-      const url = (path: string) => {
-        const u = new URL(path, apiHost(this.config.region));
-        u.searchParams.set("namespace", this.config.staticNamespace);
-        u.searchParams.set("locale", this.config.locale);
-        return u.toString();
-      };
+      const url = (path: string) => this.apiUrl(this.config.region, path, this.config.staticNamespace);
       const init = { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" as const };
       const res = await this.fetchImpl(url(`/data/wow/item/${itemId}`), init);
       if (res.status === 404) return { status: "missing" };
@@ -596,9 +662,10 @@ export class BlizzardClient {
   }
 
   /** The in-game guild roster: one request covers every member's level. Null if the guild isn't found. */
-  async getGuildRoster(realmSlug: string, guildSlug: string): Promise<RosterMember[] | null> {
+  async getGuildRoster(region: Region, realmSlug: string, guildSlug: string): Promise<RosterMember[] | null> {
     const token = await this.appToken();
     const res = await this.get(
+      region,
       `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(guildSlug)}/roster`,
       token,
     );

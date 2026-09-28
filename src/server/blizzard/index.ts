@@ -4,7 +4,7 @@ import { blizzardConfigFromEnv } from "./config";
 import { tokenKeyFromEnv } from "./crypto";
 import { createMockFetch } from "./mock";
 
-export { charactersForGuild } from "./filter";
+export { charactersForGuild, snapshotRegion } from "./filter";
 export { battlenetEnabled, blizzardConfigFromEnv, type BlizzardConfig } from "./config";
 export { BlizzardClient, type FetchLike, type ItemLookup } from "./client";
 

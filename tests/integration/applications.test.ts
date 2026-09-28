@@ -10,6 +10,7 @@ import {
   listOwnCharacters,
   setMainCharacter,
 } from "@/server/services/characters";
+import { createGuildWithDefaults } from "@/server/services/guilds";
 import { createGuild, createMember, createTestDb, createVisitor, reloadActor, validApplication } from "../support/db";
 
 let db: Db;
@@ -95,6 +96,18 @@ describe("application lifecycle", () => {
     const guild = await createGuild(db);
     const visitor = await createVisitor(db, guild.guild.id);
     await expect(submitApplication(db, visitor, { ...validApplication, spec: "Holy" })).rejects.toThrow(/Spec/);
+  });
+
+  it("asks only the Order's applicants to respect the faith", async () => {
+    const unpledged = { ...validApplication, respectsFaith: undefined };
+    const order = await createGuild(db);
+    await expect(submitApplication(db, await createVisitor(db, order.guild.id), unpledged)).rejects.toThrow(
+      "You must agree to respect the faith and the charter",
+    );
+    const standard = await createGuildWithDefaults(db, { slug: "pledge-standard", name: "Silver Dawn", faction: "alliance", ruleset: "normal" });
+    const rejected = submitApplication(db, await createVisitor(db, standard.guild.id), unpledged);
+    await expect(rejected).rejects.toThrow("You must agree to keep the charter");
+    await expect(rejected).rejects.not.toThrow(/faith/);
   });
 });
 

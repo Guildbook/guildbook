@@ -23,7 +23,7 @@ export function SiteHeader({ guild, viewer }: { guild: Guild; viewer: Viewer }) 
     ...(can(viewer.actor, "member.area") ? [{ href: h("/members/characters"), label: "Characters" }] : []),
     ...(can(viewer.actor, "admin.area") ? [{ href: h("/admin"), label: "Admin" }] : []),
   ];
-  const showApply = offersApply(viewer);
+  const showApply = offersApply(viewer, guild);
 
   const signIn = (
     <Link href={h("/login")} className="btn btn-ghost btn-sm">

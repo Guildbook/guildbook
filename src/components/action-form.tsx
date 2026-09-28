@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { createContext, type ReactNode, useActionState, useContext, useEffect, useRef } from "react";
+import { createContext, type ReactNode, startTransition, useActionState, useContext, useEffect, useId, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import { consumeFlash } from "@/components/toaster";
 import { toast } from "@/lib/toast";
@@ -9,7 +9,35 @@ import type { ActionResult } from "@/server/action-types";
 
 type FormAction = (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>;
 
-const ResultContext = createContext<ActionResult | null>(null);
+interface FormContext {
+  state: ActionResult | null;
+  pending: boolean;
+  formId: string;
+  labels: Readonly<Record<string, string>>;
+}
+
+const ResultContext = createContext<FormContext>({ state: null, pending: false, formId: "", labels: {} });
+
+const errorSlotId = (formId: string, name: string) => `${formId}-${name}-error`;
+const summaryId = (formId: string) => `${formId}-summary`;
+
+/** `discordInviteUrl` to "Discord invite url", for fields a form didn't label. */
+export function humanizeField(name: string): string {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Field errors in form order: fields with inputs in DOM order first, then any the form has no input for. */
+function failingFields(state: ActionResult | null): [string, string][] {
+  if (!state || state.ok || !state.fieldErrors) return [];
+  return Object.entries(state.fieldErrors).flatMap(([name, errors]) => (errors?.length ? [[name, errors[0]!] as [string, string]] : []));
+}
+
+function fieldControls(form: HTMLFormElement, name: string): HTMLElement[] {
+  return [...form.querySelectorAll<HTMLElement>("input, select, textarea")].filter(
+    (el) => el.getAttribute("name") === name && el.getAttribute("type") !== "hidden",
+  );
+}
 
 /**
  * A success `message` also shows as a toast, as does an error with no field to point at. The success toast is raised
@@ -20,16 +48,17 @@ export function ActionForm({
   action,
   children,
   className,
-  resetOnSuccess = false,
   confirm,
   toast: announce = true,
+  labels = {},
 }: {
   action: FormAction;
   children: ReactNode;
   className?: string;
-  resetOnSuccess?: boolean;
   confirm?: string;
   toast?: boolean;
+  /** Field names to the labels the error summary uses; unlisted fields get a humanized name. */
+  labels?: Readonly<Record<string, string>>;
 }) {
   const run: FormAction = async (prev, formData) => {
     const result = await action(prev, formData);
@@ -37,26 +66,72 @@ export function ActionForm({
     consumeFlash();
     return result;
   };
-  const [state, formAction] = useActionState(run, null);
+  const [state, formAction, pending] = useActionState(run, null);
   const formRef = useRef<HTMLFormElement>(null);
+  const formId = useId().replace(/:/g, "");
+
+  // Submissions are dispatched by hand so a rejected one keeps what the user entered (React resets a form after any
+  // `action` it runs); a successful one resets like React's own, restoring the re-rendered defaults.
+  useEffect(() => {
+    if (state?.ok) formRef.current?.reset();
+  }, [state]);
 
   useEffect(() => {
-    if (resetOnSuccess && state?.ok) formRef.current?.reset();
-  }, [state, resetOnSuccess]);
+    const form = formRef.current;
+    if (!form) return;
+    for (const el of form.querySelectorAll<HTMLElement>("[data-aria-invalid-managed]")) {
+      el.removeAttribute("aria-invalid");
+      el.removeAttribute("data-aria-invalid-managed");
+      const describedBy = el.dataset.ariaDescribedbyOriginal;
+      if (describedBy) el.setAttribute("aria-describedby", describedBy);
+      else el.removeAttribute("aria-describedby");
+      delete el.dataset.ariaDescribedbyOriginal;
+    }
+    const failing = failingFields(state);
+    if (failing.length === 0) return;
+    let first: { el: HTMLElement; index: number } | null = null;
+    const all = [...form.querySelectorAll<HTMLElement>("input, select, textarea")];
+    for (const [name] of failing) {
+      const slot = document.getElementById(errorSlotId(formId, name));
+      const describer = slot ? slot.id : summaryId(formId);
+      for (const el of fieldControls(form, name)) {
+        const original = el.getAttribute("aria-describedby");
+        if (original) el.dataset.ariaDescribedbyOriginal = original;
+        el.setAttribute("aria-describedby", [original, describer].filter(Boolean).join(" "));
+        el.setAttribute("aria-invalid", "true");
+        el.setAttribute("data-aria-invalid-managed", "");
+        const index = all.indexOf(el);
+        if (!first || index < first.index) first = { el, index };
+      }
+    }
+    const target = first?.el ?? document.getElementById(summaryId(formId));
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.focus({ preventScroll: true });
+  }, [state, formId]);
 
   useEffect(() => {
     if (!announce || !state || state.ok) return;
-    if (!formRef.current?.querySelector("[data-field-error]")) toast.error(state.error);
-  }, [state, announce]);
+    const failing = failingFields(state);
+    if (failing.length === 0) {
+      toast.error(state.error);
+      return;
+    }
+    if (formRef.current?.querySelector("[data-form-message]")) return;
+    toast.error(failing.map(([name, message]) => `${labels[name] ?? humanizeField(name)}: ${message}`).join(". "));
+  }, [state, announce, labels]);
 
   return (
-    <ResultContext.Provider value={state}>
+    <ResultContext.Provider value={{ state, pending, formId, labels }}>
       <form
         ref={formRef}
         action={formAction}
         className={className}
         onSubmit={(e) => {
-          if (confirm && !window.confirm(confirm)) e.preventDefault();
+          e.preventDefault();
+          if (confirm && !window.confirm(confirm)) return;
+          const data = new FormData(e.currentTarget, (e.nativeEvent as SubmitEvent).submitter);
+          startTransition(() => formAction(data));
         }}
       >
         {children}
@@ -66,30 +141,59 @@ export function ActionForm({
 }
 
 export function useActionResult() {
-  return useContext(ResultContext);
+  return useContext(ResultContext).state;
 }
 
+/**
+ * The form's outcome. A validation failure lists every failing field with its label and message, including fields
+ * the form has no input for, so a server-side rule never leaves the user with nothing to fix.
+ */
 export function FormMessage({ className }: { className?: string }) {
-  const state = useContext(ResultContext);
-  if (!state) return null;
-  if (state.ok && !state.message) return null;
+  const { state, formId, labels } = useContext(ResultContext);
+  const failing = failingFields(state);
+  if (!state || (state.ok && !state.message)) return <span hidden data-form-message />;
+  if (state.ok) {
+    return (
+      <p role="status" className={clsx("text-sm text-emerald-300", className)} data-form-message>
+        {state.message}
+      </p>
+    );
+  }
   return (
-    <p
-      role={state.ok ? "status" : "alert"}
-      className={clsx("text-sm", state.ok ? "text-emerald-300" : "text-red-300", className)}
+    <div
+      id={summaryId(formId)}
+      role="alert"
+      tabIndex={-1}
+      className={clsx("text-sm text-red-300 outline-none", className)}
+      data-form-message
+      data-testid="form-error-summary"
     >
-      {state.ok ? state.message : state.error}
-    </p>
+      <p>{state.error}</p>
+      {failing.length > 0 && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          {failing.map(([name, message]) => (
+            <li key={name} data-summary-field={name}>
+              <strong className="font-semibold">{labels[name] ?? humanizeField(name)}:</strong> {message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
-export function FieldError({ name }: { name: string }) {
-  const state = useContext(ResultContext);
-  const errors = state && !state.ok ? state.fieldErrors?.[name] : undefined;
-  if (!errors?.length) return null;
+/** The inline error slot for a field; always rendered (empty when valid) so inputs can point at it. */
+export function FieldError({ name, stale = false }: { name: string; /** The value changed since the error; show nothing. */ stale?: boolean }) {
+  const { state, formId } = useContext(ResultContext);
+  const errors = state && !state.ok && !stale ? state.fieldErrors?.[name] : undefined;
   return (
-    <p className="mt-1 text-xs text-red-300" data-field-error={name}>
-      {errors[0]}
+    <p
+      id={errorSlotId(formId, name)}
+      className="mt-1 text-xs text-red-300 empty:hidden"
+      data-error-slot={name}
+      data-field-error={errors?.length ? name : undefined}
+    >
+      {errors?.[0]}
     </p>
   );
 }
@@ -105,7 +209,9 @@ export function SubmitButton({
   size?: "sm";
   pendingLabel?: string;
 }) {
-  const { pending } = useFormStatus();
+  const status = useFormStatus();
+  const form = useContext(ResultContext);
+  const pending = status.pending || form.pending;
   return (
     <button
       type="submit"

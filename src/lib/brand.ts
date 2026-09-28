@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { STATIC_PREVIEW_VERSIONS } from "@/lib/brand-versions";
-import type { Faction, Ruleset } from "@/lib/game";
+import type { Faction, Region, Ruleset } from "@/lib/game";
 import { tabardKey } from "@/lib/tabard/config";
 import { guildLook, isOrderLook, type LookColumns } from "@/lib/tabard/look";
 
@@ -72,11 +72,12 @@ export const PREVIEW_PAGES = { charter: "Charter", lore: "Lore", roster: "Roster
 export type PreviewPage = keyof typeof PREVIEW_PAGES;
 export const isPreviewPage = (p: string | null): p is PreviewPage => p !== null && Object.hasOwn(PREVIEW_PAGES, p);
 
-/** The guild columns a link preview draws. Ruleset and verification are optional. */
+/** The guild columns a link preview draws. Region, ruleset and verification are optional. */
 export interface PreviewGuild extends LookColumns {
   slug: string;
   name: string;
   motto: string | null;
+  region?: Region | null;
   faction: Faction | null;
   ruleset?: Ruleset | null;
   recruitmentOpen: boolean;
@@ -84,7 +85,7 @@ export interface PreviewGuild extends LookColumns {
 }
 
 /** Bump when the preview's design changes, so cached images are refetched. */
-const PREVIEW_DESIGN = 2;
+const PREVIEW_DESIGN = 3;
 
 /** 32-bit FNV-1a, base 36: short and stable, and works in any runtime. */
 function shortHash(s: string) {
@@ -98,7 +99,18 @@ export function previewVersion(guild: PreviewGuild, host: string) {
   const look = guildLook(guild);
   const art = isOrderLook(guild) ? "order" : [tabardKey(look.tabard), look.base, JSON.stringify(look.overrides)].join("/");
   return shortHash(
-    [PREVIEW_DESIGN, art, guild.name, guild.motto ?? "", guild.faction ?? "", guild.ruleset ?? "", guild.recruitmentOpen, Boolean(guild.verifiedAt), host].join("|"),
+    [
+      PREVIEW_DESIGN,
+      art,
+      guild.name,
+      guild.motto ?? "",
+      guild.region ?? "",
+      guild.faction ?? "",
+      guild.ruleset ?? "",
+      guild.recruitmentOpen,
+      Boolean(guild.verifiedAt),
+      host,
+    ].join("|"),
   );
 }
 
@@ -124,6 +136,9 @@ export function brandManifestIcons(b: Brand | BrandAssets) {
 export const SOURCE_URL = "https://github.com/Guildbook/guildbook";
 
 export const X_URL = "https://x.com/GuildbookIO";
+
+/** Where users reach the Guildbook team (also in the terms and privacy policy). */
+export const CONTACT_EMAIL = "matt.rosendin@gmail.com";
 
 export const GUILDBOOK_DESCRIPTION =
   "Guild sites for World of Warcraft: Forever. Rosters, applications, raid schedules, progression and combat log reviews, on your own subdomain.";

@@ -2,13 +2,14 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditLog, battlenetLinks, type BattlenetCharacterSnapshot, guilds, memberships } from "@/db/schema";
 import type { Db } from "@/db/types";
-import type { Faction } from "@/lib/game";
+import type { Faction, Region } from "@/lib/game";
 import { BlizzardClient } from "@/server/blizzard/client";
 import { blizzardConfigFromEnv } from "@/server/blizzard/config";
 import { DomainError } from "@/server/errors";
 import {
   claimGuildName,
   claimGuildSlug,
+  getSlugClaim,
   recheckVerifiedGuilds,
   verifyGuild,
 } from "@/server/services/guild-verification";
@@ -32,19 +33,26 @@ interface FakeCharacter {
   name: string;
   realm: string;
   faction: Faction;
+  /** Battle.net region; unset means US, and the snapshot leaves it out as snapshots from before regions did. */
+  region?: Region;
   guild?: { name: string; realm: string; faction: Faction };
 }
 
-/** A tiny Battle.net: character profiles, realm types and guild rosters, served through the client's fetch. */
+/**
+ * A tiny Battle.net: character profiles (per region, from the API host), realm types and guild rosters, served
+ * through the client's fetch.
+ */
 class FakeBattlenet {
   characters = new Map<string, FakeCharacter>();
+  /** API regions that character profiles were requested from. */
+  profileRegions: string[] = [];
   realmTypes = new Map<string, string>();
   /** Guild roster by `realm/name-slug`: member ranks by character id, or an HTTP status to answer with. */
   rosters = new Map<string, Map<number, number> | number>();
   down = false;
 
   character(c: FakeCharacter) {
-    this.characters.set(`${c.realm}/${c.name.toLowerCase()}`, c);
+    this.characters.set(`${c.region ?? "us"}/${c.realm}/${c.name.toLowerCase()}`, c);
     return c;
   }
 
@@ -60,7 +68,9 @@ class FakeBattlenet {
 
     let m = u.pathname.match(/^\/profile\/wow\/character\/([^/]+)\/([^/]+)$/);
     if (m) {
-      const c = this.characters.get(`${decodeURIComponent(m[1]!)}/${decodeURIComponent(m[2]!)}`);
+      const region = u.hostname.split(".")[0]!;
+      this.profileRegions.push(region);
+      const c = this.characters.get(`${region}/${decodeURIComponent(m[1]!)}/${decodeURIComponent(m[2]!)}`);
       if (!c) return json({}, 404);
       return json({
         id: c.id,
@@ -108,8 +118,15 @@ class FakeBattlenet {
 let seq = 1000;
 
 /** A guild whose Grand Master has linked Battle.net with `characters` in their snapshot. */
-async function setup(opts: { name?: string; faction?: Faction; ruleset?: "normal" | "pvp" | "rp"; characters?: FakeCharacter[] } = {}) {
-  const guild = await createGuild(db, { name: opts.name ?? `Guild ${++seq}`, faction: opts.faction ?? "alliance", ruleset: opts.ruleset ?? "normal" });
+async function setup(
+  opts: { name?: string; region?: Region; faction?: Faction; ruleset?: "normal" | "pvp" | "rp"; characters?: FakeCharacter[] } = {},
+) {
+  const guild = await createGuild(db, {
+    name: opts.name ?? `Guild ${++seq}`,
+    region: opts.region ?? "us",
+    faction: opts.faction ?? "alliance",
+    ruleset: opts.ruleset ?? "normal",
+  });
   const gm = await createMember(db, guild, "Grand Master");
   if (opts.characters) await link(gm.userId, opts.characters);
   return { guild: guild.guild, gm };
@@ -127,6 +144,7 @@ async function link(userId: string, characters: FakeCharacter[]) {
     race: "human",
     faction: c.faction,
     guildName: c.guild?.name ?? null,
+    ...(c.region ? { region: c.region } : {}),
   }));
   await db.insert(battlenetLinks).values({ userId, battlenetId: `bnet-${++seq}`, battletag: `Tester#${seq}`, region: "us", characters: snapshot });
 }
@@ -141,11 +159,15 @@ async function actions(guildId: string) {
 }
 
 /** A Guild Master character (rank 0) of `guildName` on a Normal realm. */
-function guildMaster(bnet: FakeBattlenet, guildName: string, opts: { faction?: Faction; realm?: string; rank?: number } = {}) {
+function guildMaster(
+  bnet: FakeBattlenet,
+  guildName: string,
+  opts: { faction?: Faction; realm?: string; rank?: number; region?: Region } = {},
+) {
   const realm = opts.realm ?? "forever-normal";
   const faction = opts.faction ?? "alliance";
   bnet.realmTypes.set(realm, bnet.realmTypes.get(realm) ?? "NORMAL");
-  const c = bnet.character({ id: ++seq, name: `Leader${seq}`, realm, faction, guild: { name: guildName, realm, faction } });
+  const c = bnet.character({ id: ++seq, name: `Leader${seq}`, realm, faction, region: opts.region, guild: { name: guildName, realm, faction } });
   bnet.roster(realm, guildName, [[c.id, opts.rank ?? 0]]);
   return c;
 }
@@ -221,6 +243,40 @@ describe("verifying a guild", () => {
     expect(result.message).toMatch(/on the PvP ruleset, but this guild is Normal/);
   });
 
+  it("checks an EU guild against the EU API with its EU characters", async () => {
+    const bnet = new FakeBattlenet();
+    const char = guildMaster(bnet, "Nordwacht", { region: "eu" });
+    const { guild, gm } = await setup({ name: "Nordwacht", region: "eu", characters: [char] });
+    const { state, result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect(state).toBe("verified");
+    expect(result.message).toMatch(/\(Europe, Alliance, Normal\)/);
+    expect(bnet.profileRegions).toEqual(["eu"]);
+    expect((await row(guild.id)).verifiedCharacterName).toBe(char.name);
+
+    // The daily re-check runs in the guild's region too.
+    bnet.profileRegions = [];
+    await recheckVerifiedGuilds(db, bnet.client(), new Date(AFTER_LAUNCH.getTime() + DAY));
+    expect(bnet.profileRegions).toContain("eu");
+    expect(await row(guild.id)).toMatchObject({ verificationFailingSince: null, verificationResult: expect.objectContaining({ verified: true }) });
+  });
+
+  it("only counts characters in the guild's region", async () => {
+    const bnet = new FakeBattlenet();
+    // Guild Master of a same-named guild, but in Europe: never checked for an Americas guild.
+    const euLeader = guildMaster(bnet, "Twin Crowns", { region: "eu" });
+    const { guild, gm } = await setup({ name: "Twin Crowns", region: "us", characters: [euLeader] });
+    const { state, result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect(state).toBe("unverified");
+    expect(result).toMatchObject({ verified: false, reason: "region_mismatch", conclusive: true });
+    expect(result.message).toMatch(/this guild is in the Americas region/);
+    expect(bnet.profileRegions).toEqual([]);
+    expect((await row(guild.id)).verifiedAt).toBeNull();
+
+    // And the other way round: a Europe guild whose admin only has Americas characters.
+    const usLinked = await setup({ name: "Twin Crowns West", region: "eu", characters: [{ ...euLeader, region: "us" }] });
+    expect((await verifyGuild(db, usLinked.gm, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("region_mismatch");
+  });
+
   it("treats a hidden roster or Blizzard outage as inconclusive", async () => {
     const bnet = new FakeBattlenet();
     const char = guildMaster(bnet, "Quiet Ones");
@@ -284,6 +340,17 @@ describe("claiming a guild name", () => {
     expect(await row(guild.id)).toMatchObject({ name: "Sworn Shield Two", verifiedAt: null });
   });
 
+  it("only renames a holder in the same region", async () => {
+    const bnet = new FakeBattlenet();
+    const otherRegion = await createGuild(db, { name: "Vale Guard", region: "eu" });
+    const char = guildMaster(bnet, "Vale Guard");
+    const { guild, gm } = await setup({ name: "Vale Guard Temp", characters: [char] });
+    expect((await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH)).result.claim).toMatchObject({ holderName: null });
+    expect(await claimGuildName(db, gm, bnet.client(), AFTER_LAUNCH)).toEqual({ renamedHolder: null, name: "Vale Guard" });
+    expect((await row(otherRegion.guild.id)).name).toBe("Vale Guard");
+    expect((await row(guild.id)).name).toBe("Vale Guard");
+  });
+
   it("refuses a claim when the admin isn't the in-game Guild Master", async () => {
     const bnet = new FakeBattlenet();
     await createGuild(db, { name: "Iron Pact" });
@@ -294,7 +361,20 @@ describe("claiming a guild name", () => {
 });
 
 describe("claiming a subdomain", () => {
-  it("moves an unverified holder to a suffixed subdomain", async () => {
+  it("moves an unverified holder to a subdomain naming what sets it apart", async () => {
+    const holder = await createGuild(db, { slug: "oathbound", name: "Oathbound", faction: "horde", ruleset: "pvp", region: "eu" });
+    await createGuild(db, { slug: "oathbound-pvp", name: "Someone On Pvp" });
+    const { guild, gm } = await setup({ name: "Oathbound" });
+    await db.update(guilds).set({ verifiedAt: new Date(), verifiedVia: "battlenet" }).where(eq(guilds.id, guild.id));
+
+    expect(await getSlugClaim(db, await row(guild.id))).toMatchObject({ slug: "oathbound", holderName: "Oathbound", holderMovesTo: "oathbound-horde" });
+    const moved = await claimGuildSlug(db, gm, AFTER_LAUNCH);
+    expect(moved).toEqual({ slug: "oathbound", previousSlug: guild.slug, movedHolderTo: "oathbound-horde" });
+    expect((await row(holder.guild.id)).slug).toBe("oathbound-horde");
+    expect((await row(holder.guild.id)).adminNotice).toMatch(/subdomain is now "oathbound-horde"/);
+  });
+
+  it("falls back to a numbered subdomain when nothing sets the holder apart", async () => {
     const holder = await createGuild(db, { slug: "morning-star", name: "Somebody Else" });
     const { guild, gm } = await setup({ name: "Morning Star" });
     await db.update(guilds).set({ verifiedAt: new Date(), verifiedVia: "battlenet" }).where(eq(guilds.id, guild.id));
@@ -391,12 +471,25 @@ describe("changing a verified guild's identity", () => {
     const { guild, gm } = await setup({ name: "Steadfast", characters: [char] });
     await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
 
-    const settings = { name: "Steadfast", timezone: "America/New_York", faction: "alliance", ruleset: "normal", motto: "Hold" };
+    const settings = { name: "Steadfast", timezone: "America/New_York", region: "us", faction: "alliance", ruleset: "normal", motto: "Hold" };
     expect(await updateGuildSettings(db, gm, settings)).toMatchObject({ unverified: false });
     expect((await row(guild.id)).verifiedAt).not.toBeNull();
 
     expect(await updateGuildSettings(db, gm, { ...settings, ruleset: "pvp" })).toMatchObject({ unverified: true });
     expect((await row(guild.id)).verifiedAt).toBeNull();
+    expect(await actions(guild.id)).toContain("guild.verification.remove");
+  });
+
+  it("removes the verification when the region changes", async () => {
+    const bnet = new FakeBattlenet();
+    const char = guildMaster(bnet, "Far Shore");
+    const { guild, gm } = await setup({ name: "Far Shore", characters: [char] });
+    await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect((await row(guild.id)).verifiedAt).not.toBeNull();
+
+    const settings = { name: "Far Shore", timezone: "Europe/Berlin", region: "eu", faction: "alliance", ruleset: "normal" };
+    expect(await updateGuildSettings(db, gm, settings)).toMatchObject({ unverified: true });
+    expect(await row(guild.id)).toMatchObject({ region: "eu", verifiedAt: null, verifiedCharacterId: null });
     expect(await actions(guild.id)).toContain("guild.verification.remove");
   });
 });

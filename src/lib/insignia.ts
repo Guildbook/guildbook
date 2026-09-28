@@ -27,6 +27,22 @@ export const INSIGNIA_INFO: Record<Insignia, { label: string; meaning: string }>
   candle: { label: "Candle", meaning: "Seeking entry, a light in the window" },
 };
 
+/** The meanings above are the Order's; other guilds read these where the Order's mention it. */
+const GENERIC_MEANINGS: Partial<Record<Insignia, string>> = {
+  archangel: "A crowned sword between two wings",
+  keys: "The steward who holds the keys of the house",
+  banner: "Carries the guild's banner and leads the host in the field",
+  chalice: "Keeper of the guild's fellowship and traditions",
+  "cross-pattee": "The mark of the raiding core",
+  chevron: "A mark of steady service",
+  helm: "Bears the helm and arms of a raider",
+  cross: "Taking the first steps in the guild",
+};
+
+export function insigniaMeaning(insignia: Insignia, guild: { preset: string }) {
+  return (guild.preset !== "order" && GENERIC_MEANINGS[insignia]) || INSIGNIA_INFO[insignia].meaning;
+}
+
 /** Used when a rank has no insignia chosen. */
 export const DEFAULT_INSIGNIA_BY_TIER: Record<RankTier, Insignia> = {
   admin: "archangel",

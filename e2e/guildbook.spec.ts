@@ -42,10 +42,15 @@ test.describe("Guildbook platform", () => {
     await expect(page.getByRole("heading", { name: "Guild directory" })).toBeVisible();
     await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toHaveAttribute("href", guildOrigin("osm"));
     await expect(page.getByTestId("directory").getByTestId("ruleset-badge").first()).toBeVisible();
+    await expect(page.getByTestId("directory").getByTestId("region-badge").first()).toBeVisible();
+    await page.getByTestId("directory-filters").getByRole("link", { name: "Europe" }).click();
+    await expect(page).toHaveURL(`${APEX}/guilds?region=eu`);
+    await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);
+    await page.goto(`${APEX}/guilds`);
     await page.getByTestId("directory-filters").getByRole("link", { name: "Horde" }).click();
     await expect(page).toHaveURL(`${APEX}/guilds?faction=horde`);
     await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);
-    await page.goto(`${APEX}/guilds?faction=alliance&ruleset=normal`);
+    await page.goto(`${APEX}/guilds?region=us&faction=alliance&ruleset=normal`);
     await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toBeVisible();
 
     await page.goto(`${guildOrigin("osm")}/charter`);
@@ -82,26 +87,60 @@ test.describe("Guildbook platform", () => {
     // The name suggests a slug until the slug is edited, but the slug was edited above.
     await slugInput.fill(slug);
     await expect(page.getByTestId("slug-status")).toHaveText("Available");
+    await expect(page.getByTestId("region-choice").getByRole("radio")).toHaveCount(2);
+    await expect(page.getByLabel(/^Americas/)).toBeChecked();
+    await page.getByLabel(/^Europe/).check();
     await expect(page.getByTestId("faction-choice").getByRole("radio")).toHaveCount(2);
     await page.getByLabel("Horde").check();
     await page.getByLabel(/^PvP/).check();
     await page.getByLabel("Motto").fill("Hold the line");
+
+    // A server-side rejection names the field, focuses it and offers subdomains that set this guild apart.
+    await slugInput.fill("osm");
+    await expect(page.getByTestId("slug-suggestions").getByRole("button", { name: "osm-pvp" })).toBeVisible();
+    await page.getByRole("button", { name: "Create guild" }).click();
+    const summary = page.getByTestId("form-error-summary");
+    await expect(summary).toContainText("Subdomain: That subdomain is taken");
+    await expect(slugInput).toBeFocused();
+    await expect(slugInput).toHaveAttribute("aria-invalid", "true");
+    // A rejected submit keeps the choices already made.
+    await expect(page.getByLabel(/^Europe/)).toBeChecked();
+    await expect(page.getByLabel(/^PvP/)).toBeChecked();
+    await page.getByTestId("slug-suggestions").getByRole("button", { name: "osm-horde" }).click();
+    await expect(slugInput).toHaveValue("osm-horde");
+    await slugInput.fill(slug);
+    await expect(page.getByTestId("slug-status")).toHaveText("Available");
     // Left unlisted so repeated runs don't fill the local directory.
     await expect(page.getByLabel(/public Guildbook directory/)).not.toBeChecked();
     await page.getByRole("button", { name: "Create guild" }).click();
 
-    // The handoff sets a session on the new subdomain and lands on its admin.
-    await page.waitForURL(`${guildOrigin(slug)}/admin`);
-    await expect(page.getByRole("heading", { name: "Chapter House" })).toBeVisible();
+    // The handoff sets a session on the new subdomain and lands on its setup checklist, as an unlisted draft.
+    await page.waitForURL(`${guildOrigin(slug)}/admin/setup`);
+    await expect(page.getByRole("heading", { name: `Set up ${name}` })).toBeVisible();
+    await expect(page.getByTestId("draft-banner")).toBeVisible();
 
     await page.goto(`${guildOrigin(slug)}/`);
     await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
     await expect(page.getByRole("main").getByText("Hold the line")).toBeVisible();
     await expect(page.getByText("Sancte Michael Archangele")).toHaveCount(0);
     await expect(page.getByTestId("footer-ruleset")).toHaveText("PvP");
+    await expect(page.getByTestId("footer-region")).toHaveText("Europe");
 
     await page.goto(`${guildOrigin(slug)}/charter`);
     await expect(page.getByRole("heading", { name: "Guild Charter" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Ranks of ${name}` })).toBeVisible();
+    await expect(page.getByRole("main").getByText(/the Order|Saint Michael|Grand Master|knight/i)).toHaveCount(0);
+
+    // The guild's other pages carry its own name, never the Order's wording.
+    for (const [path, text] of [
+      ["/progression", `Deeds of ${name}`],
+      ["/addons", "Guild Addons"],
+      ["/roster", /^\d+ members? of /],
+    ] as const) {
+      await page.goto(`${guildOrigin(slug)}${path}`);
+      await expect(page.getByRole("main").getByText(text)).toBeVisible();
+      await expect(page.getByRole("main").getByText(/the Order|brothers and sisters/)).toHaveCount(0);
+    }
 
     // Custom domain foundations: a pending domain with DNS instructions.
     await page.goto(`${guildOrigin(slug)}/admin/guild`);

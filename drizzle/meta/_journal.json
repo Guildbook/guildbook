@@ -113,6 +113,27 @@
       "when": 1790730300000,
       "tag": "0015_guild_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790730400000,
+      "tag": "0016_guild_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790730500000,
+      "tag": "0017_guild_region",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790730600000,
+      "tag": "0018_guild_crest",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
 import { AddonIcon } from "@/components/addon-icon";
 import { BattlenetAccount, BattlenetNotice, EmptySnapshotNote, LinkBattlenetButton } from "@/components/battlenet";
+import { RegionTag } from "@/components/region";
 import {
   CharacterLink,
   ClassName,
@@ -21,7 +22,7 @@ import { CLASS_INFO, fullName, PROFESSION_LABELS, ROLE_LABELS, ROLES } from "@/l
 import { guildHref } from "@/lib/paths";
 import { importBattlenetCharacterAction } from "@/server/actions/battlenet";
 import { archiveCharacterAction, setMainCharacterAction } from "@/server/actions/member";
-import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
+import { battlenetEnabled, blizzardConfigFromEnv, snapshotRegion } from "@/server/blizzard";
 import { requirePage } from "@/server/context";
 import { getEligibleCharacters } from "@/server/services/battlenet";
 import { type CharacterWithProfessions, listOwnCharacters } from "@/server/services/characters";
@@ -43,8 +44,9 @@ function ImportRow({
       <p className="font-semibold" style={{ color: info.color }}>
         {bnet.name}
       </p>
-      <p className="text-xs text-muted">
-        Level {bnet.level} {bnet.race} {info.label}
+      <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        Level {bnet.level} {bnet.race} {info.label}, {bnet.realmName}
+        <RegionTag region={snapshotRegion(bnet)} />
       </p>
       {bnet.guildName && <p className="text-xs text-gold-dim">&lt;{bnet.guildName}&gt;</p>}
     </div>
@@ -148,7 +150,7 @@ export default async function CharactersPage({ params, searchParams }: PageProps
             <div className="space-y-3">
               <BattlenetAccount link={bnet.link} slug={slug} returnTo={returnTo} timezone={guild.timezone} />
               {bnet.characters.length === 0 ? (
-                <EmptySnapshotNote link={bnet.link} faction={guild.faction} />
+                <EmptySnapshotNote link={bnet.link} faction={guild.faction} region={guild.region} />
               ) : (
                 <details className="group" open={sp.bnet === "linked" || undefined}>
                   <summary className="btn btn-primary btn-sm cursor-pointer list-none">
@@ -204,6 +206,7 @@ export default async function CharactersPage({ params, searchParams }: PageProps
                   {!guild.faction && <FactionBadge faction={c.faction} />}
                   <RoleBadge role={c.role} />
                   {!c.verified && <Tag>Unverified</Tag>}
+                  {c.verified && c.region && <RegionTag region={c.region} className="self-center" />}
                 </div>
                 {c.verified && c.syncedAt && (
                   <p className="mt-1 text-xs text-muted">Synced from Battle.net {formatDateTime(c.syncedAt, guild.timezone)}</p>

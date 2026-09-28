@@ -4,11 +4,19 @@ import { applications, characters, guilds, memberships, ranks, users } from "@/d
 import { type Actor, assertCan } from "@/lib/authz/policy";
 import { tierAtLeast } from "@/lib/authz/tiers";
 import { fullName } from "@/lib/game";
-import { applicationDecision, applicationInput, bnetCharacterId } from "@/lib/validation";
+import { applicationDecision, applicationInputFor, bnetCharacterId } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { DomainError, NotFoundError } from "@/server/errors";
 import { resolveFaction } from "@/server/faction";
 import { defaultEligibility, type Eligibility, resolveVerifiedCharacter } from "@/server/services/battlenet";
+
+export const DRAFT_APPLICATIONS_CLOSED = "This guild isn't open for applications yet. Check back once it's published.";
+
+/** Drafts take applications only through the private invite link an admin shares from the setup checklist. */
+export function validDraftInvite(guild: { setup: { inviteCode?: string } }, given: unknown): boolean {
+  const code = guild.setup.inviteCode;
+  return Boolean(code) && typeof given === "string" && given === code;
+}
 
 async function loadGuild(tx: Db, guildId: string) {
   const [guild] = await tx.select().from(guilds).where(eq(guilds.id, guildId));
@@ -33,7 +41,7 @@ export async function submitApplication(
   const bnet = claimed
     ? await resolveVerifiedCharacter(db, actor, bnetCharacterId.parse(form.bnetCharacterId), eligibility)
     : null;
-  const input = applicationInput.parse(
+  const input = applicationInputFor(await loadGuild(db, actor.guildId)).parse(
     bnet
       ? {
           ...form,
@@ -49,6 +57,7 @@ export async function submitApplication(
     ? {
         verified: true,
         bnetCharacterId: bnet.character.id,
+        region: bnet.character.region ?? "us",
         realmSlug: bnet.character.realmSlug,
         realmName: bnet.character.realmName,
         battletag: bnet.link.battletag,
@@ -58,6 +67,7 @@ export async function submitApplication(
 
   return db.transaction(async (tx) => {
     const guild = await loadGuild(tx, actor.guildId);
+    if (!guild.publishedAt && !validDraftInvite(guild, form.invite)) throw new DomainError(DRAFT_APPLICATIONS_CLOSED);
     if (!guild.recruitmentOpen) throw new DomainError("Recruitment is currently closed.");
     if (!guild.applicantRankId) throw new DomainError("The guild has not configured an applicant rank.");
     const faction = await resolveFaction(tx, actor.guildId, input.faction);
@@ -225,6 +235,7 @@ export async function reviewApplication(db: Db, actor: Actor, raw: unknown) {
         ? {
             verified: true,
             bnetCharacterId: app.bnetCharacterId,
+            region: app.region,
             realmSlug: app.realmSlug,
             realmName: app.realmName,
             syncedAt: app.bnetSnapshotAt,

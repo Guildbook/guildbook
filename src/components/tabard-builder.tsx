@@ -1,13 +1,14 @@
 "use client";
 
 import clsx from "clsx";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
+import { CrestToneFilter } from "@/components/tabard-art";
 import { TabardCrest, tabardColors } from "@/components/tabard-crest";
 import { VerifiedMark } from "@/components/ui";
 import { contrast } from "@/lib/tabard/color";
-import { BORDER_STYLES, type TabardConfig } from "@/lib/tabard/config";
-import { EMBLEMS } from "@/lib/tabard/emblems";
+import type { TabardConfig } from "@/lib/tabard/config";
+import { CREST_EMBLEMS, crestEmblem, emblemSrc } from "@/lib/tabard/crest";
 import { BACKGROUND_COLORS, BORDER_COLORS, EMBLEM_COLORS, type Swatch } from "@/lib/tabard/palette";
 import {
   AA_TEXT,
@@ -39,13 +40,14 @@ function SwatchGrid({ label, swatches, value, onChange }: { label: string; swatc
       <legend className="field-label">
         {label} <span className="font-normal tracking-normal text-muted normal-case">{current?.name}</span>
       </legend>
-      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
+      <div role="radiogroup" aria-label={label} onKeyDown={onRadioKeys} className="flex flex-wrap gap-1.5">
         {swatches.map((s) => (
           <button
             key={s.id}
             type="button"
             role="radio"
             aria-checked={s.id === value}
+            tabIndex={s.id === value ? 0 : -1}
             aria-label={s.name}
             title={s.name}
             onClick={() => onChange(s.id)}
@@ -61,45 +63,89 @@ function SwatchGrid({ label, swatches, value, onChange }: { label: string; swatc
   );
 }
 
-function EmblemPicker({ tabard, onChange }: { tabard: TabardConfig; onChange: (id: string) => void }) {
+/** The thumbnails' tint filter. The SVG is zero-sized but rendered, so its filter paints. */
+function TintFilter({ id, hex }: { id: string; hex: string }) {
+  return (
+    <svg width="0" height="0" aria-hidden className="absolute">
+      <CrestToneFilter id={id} hex={hex} />
+    </svg>
+  );
+}
+
+const tileClass = (selected: boolean) =>
+  clsx(
+    "relative rounded border p-1 outline-offset-2 transition-colors focus-visible:outline-2 focus-visible:outline-gold",
+    selected ? "border-gold bg-gold/10" : "border-line hover:border-gold-dim",
+  );
+
+/** Moves focus and selection through a radiogroup of tiles with the arrow keys, Home and End. */
+function onRadioKeys(e: React.KeyboardEvent<HTMLElement>) {
+  const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
+  if (!keys.includes(e.key)) return;
+  const radios = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+  const at = radios.indexOf(document.activeElement as HTMLButtonElement);
+  if (at < 0) return;
+  e.preventDefault();
+  const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1;
+  const next = e.key === "Home" ? 0 : e.key === "End" ? radios.length - 1 : (at + step + radios.length) % radios.length;
+  radios[next]?.focus();
+  radios[next]?.click();
+}
+
+function EmblemPicker({ tabard, onChange }: { tabard: TabardConfig; onChange: (emblemId: number) => void }) {
   const [query, setQuery] = useState("");
+  const filter = `emblem-tint-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const c = tabardColors(tabard);
   const q = query.trim().toLowerCase();
-  const shown = EMBLEMS.filter((e) => !q || e.name.toLowerCase().includes(q) || e.id.includes(q) || e.tags.some((t) => t.includes(q)));
-  const current = EMBLEMS.find((e) => e.id === tabard.emblem);
+  const shown = CREST_EMBLEMS.filter((e) => !q || e.name.toLowerCase().includes(q) || String(e.id) === q || e.tags.some((t) => t.includes(q)));
+  const selected = tabard.emblemId;
+  const selectedShown = shown.some((e) => e.id === selected);
   return (
     <fieldset>
       <legend className="field-label">
-        Emblem <span className="font-normal tracking-normal text-muted normal-case">{current?.name}</span>
+        Emblem <span className="font-normal tracking-normal text-muted normal-case">{crestEmblem(selected)?.name}</span>
       </legend>
+      <TintFilter id={filter} hex={c.emblem} />
       <input
         type="search"
         className="field mb-2"
-        placeholder="Search emblems: lion, cross, moon..."
+        placeholder="Search emblems: lion, skull, wolf..."
         aria-label="Search emblems"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <div role="radiogroup" aria-label="Emblem" className="grid max-h-72 grid-cols-5 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-7">
-        {shown.map((e) => (
-          <button
-            key={e.id}
-            type="button"
-            role="radio"
-            aria-checked={e.id === tabard.emblem}
-            aria-label={e.name}
-            title={e.name}
-            onClick={() => onChange(e.id)}
-            className={clsx("rounded border p-1 transition-colors", e.id === tabard.emblem ? "border-gold bg-gold/10" : "border-line hover:border-gold-dim")}
-          >
-            <svg viewBox="0 0 100 100" className="block aspect-square w-full" aria-hidden>
-              <rect width="100" height="100" rx="8" fill={c.field} />
-              {e.draw({ fill: c.emblem, light: c.emblemLight, shade: c.emblemShade, outline: "#1a0b0d", sw: 2.2, detail: "mark" })}
-            </svg>
-          </button>
-        ))}
+      <div
+        role="radiogroup"
+        aria-label="Emblem"
+        onKeyDown={onRadioKeys}
+        className="grid max-h-80 grid-cols-5 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-7 @3xl:grid-cols-6 @5xl:grid-cols-8"
+      >
+        {shown.map((e, i) => {
+          const on = e.id === selected;
+          return (
+            <button
+              key={e.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              tabIndex={on || (!selectedShown && i === 0) ? 0 : -1}
+              aria-label={e.name}
+              title={e.name}
+              onClick={() => onChange(e.id)}
+              className={tileClass(on)}
+            >
+              <span className="block aspect-square w-full rounded-sm" style={{ backgroundColor: c.field }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={emblemSrc(e.id)} alt="" loading="lazy" decoding="async" className="block h-full w-full" style={{ filter: `url(#${filter})` }} />
+              </span>
+            </button>
+          );
+        })}
         {shown.length === 0 && <p className="col-span-full py-4 text-center text-sm text-muted italic">No emblem matches.</p>}
       </div>
+      <p className="mt-1.5 text-xs text-muted">
+        {CREST_EMBLEMS.length} emblems from the in-game tabard designer. Use the arrow keys to move through them.
+      </p>
     </fieldset>
   );
 }
@@ -211,8 +257,8 @@ export function TabardBuilder({
       <input type="hidden" name="background" value={tabard.background} />
       <input type="hidden" name="border" value={tabard.border} />
       <input type="hidden" name="borderStyle" value={tabard.borderStyle} />
-      <input type="hidden" name="emblem" value={tabard.emblem} />
       <input type="hidden" name="emblemColor" value={tabard.emblemColor} />
+      <input type="hidden" name="emblemId" value={tabard.emblemId} />
       <input type="hidden" name="themeBase" value={base} />
       {ROLES.map((r) => (
         <input key={r} type="hidden" name={`override${r[0]!.toUpperCase()}${r.slice(1)}`} value={overrides[r] ?? ""} />
@@ -222,26 +268,9 @@ export function TabardBuilder({
       <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-5">
           <SwatchGrid label="Background colour" swatches={BACKGROUND_COLORS} value={tabard.background} onChange={(background) => set({ background })} />
-          <SwatchGrid label="Border colour" swatches={BORDER_COLORS} value={tabard.border} onChange={(border) => set({ border })} />
-          <fieldset>
-            <legend className="field-label">Border style</legend>
-            <div role="radiogroup" aria-label="Border style" className="flex flex-wrap gap-1.5">
-              {BORDER_STYLES.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={s.id === tabard.borderStyle}
-                  onClick={() => set({ borderStyle: s.id })}
-                  className={clsx("btn btn-sm", s.id === tabard.borderStyle ? "btn-gold" : "btn-ghost")}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <EmblemPicker tabard={tabard} onChange={(emblem) => set({ emblem })} />
+          <EmblemPicker tabard={tabard} onChange={(emblemId) => set({ emblemId })} />
           <SwatchGrid label="Emblem colour" swatches={EMBLEM_COLORS} value={tabard.emblemColor} onChange={(emblemColor) => set({ emblemColor })} />
+          <SwatchGrid label="Border colour" swatches={BORDER_COLORS} value={tabard.border} onChange={(border) => set({ border })} />
         </div>
 
         <div className="space-y-5">

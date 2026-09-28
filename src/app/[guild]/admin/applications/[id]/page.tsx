@@ -10,6 +10,7 @@ import { guildHref } from "@/lib/paths";
 import { reviewApplicationAction } from "@/server/actions/admin";
 import { requirePage } from "@/server/context";
 import { getApplication } from "@/server/services/applications";
+import { listRanks } from "@/server/services/ranks";
 
 export const metadata: Metadata = { title: "Review Application" };
 
@@ -20,6 +21,7 @@ export default async function ApplicationDetailPage({ params }: PageProps<"/[gui
   const row = await getApplication(db, actor, id);
   if (!row) notFound();
   const { application: a, applicant } = row;
+  const applicantRank = (await listRanks(db, guild.id)).find((r) => r.id === guild.applicantRankId);
 
   const answers = [
     { label: "Raid experience", value: a.raidExperience },
@@ -29,7 +31,7 @@ export default async function ApplicationDetailPage({ params }: PageProps<"/[gui
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title={fullName(a.characterName, a.characterSurname)} eyebrow="Postulant" />
+      <PageHeader title={fullName(a.characterName, a.characterSurname)} eyebrow={applicantRank?.name ?? "Applicant"} />
       <Panel actions={<StatusPill status={a.status} />} title="Application">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span>

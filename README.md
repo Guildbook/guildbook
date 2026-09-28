@@ -26,7 +26,7 @@ See it live at [osm.guildbook.io](https://osm.guildbook.io), home of the Order o
 - **Raid nights.** Schedule, recruitment needs and boss progression, shown in your guild's timezone.
 - **Loot ledger.** An append-only record of who got what, with imports from Gargul, RCLootCouncil and TMB. Members-only by default, or public if you choose.
 - **Vigil.** Members upload combat logs for a private review of each pull: rotation, uptimes and cooldowns.
-- **Tabard theming.** Pick your in-game crest and colors, and the site takes them on.
+- **Tabard theming.** Pick your in-game emblem and colors from the game's own designer set (or import them from your guild once WoW: Forever launches) on a Guildbook banner, and the site takes them on.
 - **Audit log.** Every officer action is recorded and can't be edited.
 
 ## For guild leaders
@@ -35,9 +35,9 @@ See it live at [osm.guildbook.io](https://osm.guildbook.io), home of the Order o
 2. Go to [guildbook.io/create](https://guildbook.io/create) and choose a name, subdomain, faction, ruleset and timezone. Your site is live immediately, and you're its Guild Master.
 3. Fill in your charter, ranks, schedule and recruitment needs from the admin, then share the link.
 
-**Faction and ruleset.** WoW: Forever has no realms: each guild lives on one ruleset (Normal, PvP, Roleplaying, or Hardcore once it opens after launch) and one faction. Name, faction and ruleset together identify a guild on Guildbook, and only one guild can hold each combination.
+**Region, faction and ruleset.** Battle.net regions (Americas and Europe) are separate worlds: characters, guilds and names exist per region. WoW: Forever has no realms: each guild lives in one region, on one ruleset (Normal, PvP, Roleplaying, or Hardcore once it opens after launch) and with one faction. Name, region, faction and ruleset together identify a guild on Guildbook, and only one guild can hold each combination, so guild names are unique per region, faction and ruleset.
 
-**Verification.** Names and subdomains of unverified guilds are first come, first served. A guild becomes **verified** when its in-game Guild Master links Battle.net and proves they lead the in-game guild with that name, faction and ruleset. A verified Guild Master can claim their guild's name, or the matching subdomain, from an unverified guild; that guild is renamed or moved to a numbered subdomain, keeps its members and content, and its admins are told why. A verified guild's name can't be claimed. Guildbook re-checks verification daily and removes it after a week of failed checks. Verification needs WoW: Forever characters, so it opens when the game launches on November 4, 2026. The full policy is in the [Terms](https://guildbook.io/terms).
+**Verification.** Names and subdomains of unverified guilds are first come, first served. A guild becomes **verified** when its in-game Guild Master links Battle.net and proves they lead the in-game guild with that name, faction and ruleset in the guild's region. A verified Guild Master can claim their guild's name, or the matching subdomain, from an unverified guild; that guild is renamed or moved to a numbered subdomain, keeps its members and content, and its admins are told why. A verified guild's name can't be claimed. Guildbook re-checks verification daily and removes it after a week of failed checks. Verification needs WoW: Forever characters, so it opens when the game launches on November 4, 2026. The full policy is in the [Terms](https://guildbook.io/terms).
 
 ## For members
 
@@ -113,26 +113,27 @@ Members sign in with Discord. Battle.net is linked afterwards, from Apply or My 
 
 1. Sign in at <https://develop.battle.net/access/clients> and choose **Create client**.
 2. Add redirect URLs `http://localhost:3000/api/battlenet/callback` and `https://guildbook.io/api/battlenet/callback`. Linking started on a guild subdomain or custom domain bounces to the apex and returns to the guild afterwards (the return URL is checked against the same allowlist as sign-in). The redirect URI must match exactly; set `BATTLENET_REDIRECT_URI=https://guildbook.io/api/battlenet/callback` in production.
-3. Copy the client ID and secret into `BATTLENET_CLIENT_ID` and `BATTLENET_CLIENT_SECRET`, and set `BATTLENET_REGION` (default `us`).
+3. Copy the client ID and secret into `BATTLENET_CLIENT_ID` and `BATTLENET_CLIENT_SECRET`. One client works for every region: OAuth is global (`oauth.battle.net`) and API calls go to `us.api.blizzard.com` or `eu.api.blizzard.com` per region.
 4. Set `BATTLENET_TOKEN_KEY` to `openssl rand -base64 32`. Access tokens are stored AES-256-GCM encrypted with it.
 5. Set `CRON_SECRET` (`openssl rand -hex 32`) in Vercel. `vercel.json` schedules `/api/cron/daily`, which deletes withdrawn and declined applications older than `APPLICATION_RETENTION_DAYS` and then runs the level sync; Vercel sends the secret as a Bearer token.
 
 How it works:
 - The OAuth flow (`/api/battlenet/link` then `/api/battlenet/callback`, scope `wow.profile`) links the Battle.net account to the signed-in user. It is not a login method.
 - Blizzard access tokens last about 24 hours and there is no refresh token. At link time we snapshot the account's characters; applications and imports are verified against that stored snapshot, never against what the browser sends. While the token is valid, "Refresh characters" re-reads the list; after that, "Reconnect" runs the OAuth flow again.
-- The level sync (daily cron and the officer **Sync now** button on Admin, Members) uses an app (client-credentials) token and public profile lookups, or one guild-roster request when `BATTLENET_GUILD_REALM` and `BATTLENET_GUILD_SLUG` are set. It doesn't need the member's token.
+- **Regions.** A Battle.net account can have characters in the Americas and in Europe. Linking reads every region in `BATTLENET_REGIONS` (default `us,eu`) and tags each character with its region; a region that answers 403 or 404 (no licence there) or fails doesn't hide the other's characters. A guild only offers, imports and verifies characters in its own region, and guild verification and the daily re-check look characters up in the guild's region. Snapshots taken before regions have no region on their characters and count as US.
+- The level sync (daily cron and the officer **Sync now** button on Admin, Members) uses an app (client-credentials) token and public profile lookups in each character's region, or one guild-roster request when `BATTLENET_GUILD_REALM` and `BATTLENET_GUILD_SLUG` are set (for guilds in `BATTLENET_GUILD_REGION`). It doesn't need the member's token.
 - Battle.net doesn't expose WoW: Forever surnames (as far as we know), so the surname stays editable text. If the API starts returning one, it's used and locked.
 - Link, unlink, refresh, import and sync are written to the audit log.
 
-**Which characters count as WoW: Forever.** Blizzard keeps each game's characters in its own profile namespace, and hasn't published one for Forever yet. It may be `profile-classic1x-us` (the default, shared with Classic Era, Hardcore and Season of Discovery), `profile-classic-us`, or a new one. A character is a Forever character only if it is in `BATTLENET_PROFILE_NAMESPACE` and:
-- when `BATTLENET_REALMS` is set, it is on one of those realms (an explicit list of Forever realms; it overrides the next rule);
+**Which characters count as WoW: Forever.** Blizzard keeps each game's characters in its own profile namespace, and hasn't published one for Forever yet. It may be `profile-classic1x-{region}` (the default, shared with Classic Era, Hardcore and Season of Discovery), `profile-classic-{region}`, or a new one. Namespace settings are per region: write them as `{region}` templates, as region-agnostic bases (`profile-classic1x`, which gets `-us` or `-eu` appended), or as before regions (`profile-classic1x-us`, whose suffix is replaced per region). A character is a Forever character only if it is in its region's `BATTLENET_PROFILE_NAMESPACE` and:
+- when `BATTLENET_REALMS` has entries for its region, it is on one of those realms (an explicit list of Forever realms; it overrides the next rule). Entries are `slug` (both regions) or `eu:slug` / `us:slug`;
 - otherwise, it is not on a known pre-Forever realm (Classic Era, Hardcore, Seasonal, Anniversary or progression; see `src/lib/wow-versions.ts`), and never on retail.
 
 Linking also reads every namespace in `BATTLENET_SCAN_NAMESPACES`, so an account with no Forever characters is told what it does have, for example "2 Alliance characters in Classic Anniversary (...), but only WoW: Forever characters can be verified". Those characters are recorded (in `battlenet_links.scan`) but never offered for import. The server logs one count-only line per link or refresh (`[battlenet] link scan: profile-classic1x-us=404:0 profile-classicann-us=200:3 ... forever=0 excluded=3`). After launch, link a test account: if its Forever characters show up as "other realms", set `BATTLENET_REALMS` to the Forever realm slugs; if they don't show up at all, change `BATTLENET_PROFILE_NAMESPACE` (use `{region}` as a placeholder). No code change is needed.
 
 To test before launch with characters from another game (for example Anniversary), set `BATTLENET_PROFILE_NAMESPACE=profile-classicann-{region}` and `BATTLENET_REALMS=<realm slugs>` on a preview deployment. Those characters would import as verified, so don't do this in production.
 
-**Mock mode.** `BATTLENET_MOCK=1` replaces Blizzard with fixture characters (Aldric, Brenna and Corwin for the Alliance, a Horde warrior and a Death Knight that are filtered out) in the Forever namespace, plus an Anniversary character (Elowen, Dreamscythe) that is listed as found but excluded. Linking skips the Battle.net page. Playwright always runs in mock mode, and the Vitest suites inject a fake `fetch`; no test calls Blizzard. The app refuses mock mode when `VERCEL_ENV=production`.
+**Mock mode.** `BATTLENET_MOCK=1` replaces Blizzard with fixture characters (Aldric, Brenna and Corwin for the Alliance, a Horde warrior and a Death Knight that are filtered out) in the US Forever namespace, one EU character (Isolde, a Dwarf Paladin on Hollowmere) offered only to Europe guilds, plus an Anniversary character (Elowen, Dreamscythe) that is listed as found but excluded. An authorization seed containing `eu-forbidden` gets 403 from every EU namespace, to exercise a one-region account. Linking skips the Battle.net page. Playwright always runs in mock mode, and the Vitest suites inject a fake `fetch`; no test calls Blizzard. The app refuses mock mode when `VERCEL_ENV=production`.
 
 ### Environment variables
 
@@ -147,18 +148,22 @@ To test before launch with characters from another game (for example Anniversary
 | `AUTH_COOKIE_DOMAIN` | in production | `guildbook.io`: the session cookie is set on `.guildbook.io`, so one sign-in covers every guild subdomain. Leave empty locally. |
 | `DEFAULT_GUILD_SLUG` | no | Guild served on hosts that are neither the apex nor a guild (`*.vercel.app` previews, IP addresses). Empty serves the apex there. Bare `localhost` is always the apex. Leave empty in production. |
 | `NEXT_PUBLIC_MULTI_GUILD` | no | Legacy dev fallback: `true` serves guilds at `/<slug>/...` on one host. |
-| `GUILD_CREATE_LIMIT` / `GUILD_CREATE_DAILY_LIMIT` | no | Guilds one user may create in total (default 3) and per rolling day (default 2). |
+| `GUILD_CREATE_LIMIT` / `GUILD_CREATE_DAILY_LIMIT` | no | Guilds one account may own at once (default 3; deleting a guild frees a slot) and found per rolling day (default 2). |
+| `GUILD_CREATE_LIMIT_OVERRIDES` | no | Raise (or lower) one account's `GUILD_CREATE_LIMIT`: comma-separated `discordId:limit` pairs. |
+| `PLATFORM_ADMIN_DISCORD_IDS` | no | Comma-separated Discord IDs of platform admins, who have no guild creation limits. |
 | `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` / `VERCEL_TEAM_ID` | no | Lets custom domains be attached and checked through the Vercel Domains API. Without them, domains are verified by TXT record only and attached in Vercel by hand. |
 | `BATTLENET_CLIENT_ID` / `BATTLENET_CLIENT_SECRET` | for Battle.net | develop.battle.net client credentials. Without them (and without mock mode) the Battle.net options are hidden. |
-| `BATTLENET_REGION` | no | `us` (default), `eu`, `kr`, `tw` or `cn`. |
+| `BATTLENET_REGION` | no | Default region, `us` (default) or `eu`: item lookups and the region recorded on a link. |
+| `BATTLENET_REGIONS` | no | Regions read when linking, default `us,eu`. |
 | `BATTLENET_TOKEN_KEY` | for Battle.net | 32 bytes, base64. Encrypts stored access tokens. |
-| `BATTLENET_PROFILE_NAMESPACE` | no | Profile API namespace WoW: Forever characters are read from, default `profile-classic1x-{region}`. See above. |
-| `BATTLENET_REALMS` | no | Comma-separated WoW: Forever realm slugs. When set, only characters on these realms can be verified. See above. |
+| `BATTLENET_PROFILE_NAMESPACE` | no | Profile API namespace template WoW: Forever characters are read from, default `profile-classic1x-{region}`. A base or a `-us` name also works. See above. |
+| `BATTLENET_REALMS` | no | Comma-separated WoW: Forever realm slugs, optionally `eu:` or `us:` prefixed. When a region has any, only characters on those realms can be verified there. See above. |
 | `BATTLENET_SCAN_NAMESPACES` | no | Comma-separated namespaces read at link time to explain an empty result. Default `profile-classic1x-{region},profile-classicann-{region},profile-classic-{region},profile-{region}`. |
 | `BATTLENET_STATIC_NAMESPACE` | no | Game Data namespace for loot item names and icons, default `static-classic1x-{region}`. See Loot ledger. |
 | `BATTLENET_DYNAMIC_NAMESPACE` | no | Game Data namespace for realm types, used by guild verification. Defaults to the profile namespace's `dynamic-` twin. |
-| `BATTLENET_REALM_RULESETS` | no | Realm slug to ruleset overrides (`realm-a:pvp,realm-b:normal`), checked before Blizzard's realm type. |
+| `BATTLENET_REALM_RULESETS` | no | Realm slug to ruleset overrides (`realm-a:pvp,eu:realm-b:normal`), checked before Blizzard's realm type. A region prefix limits an entry to that region. |
 | `BATTLENET_GUILD_REALM` / `BATTLENET_GUILD_SLUG` | no | In-game guild for one-request roster syncs. |
+| `BATTLENET_GUILD_REGION` | no | Region of that in-game guild, default `us`. |
 | `BATTLENET_REDIRECT_URI` | no | Overrides `<origin>/api/battlenet/callback`. |
 | `BATTLENET_MOCK` | dev/test only | `1` serves fixture characters instead of calling Blizzard. |
 | `CRON_SECRET` | on Vercel | Bearer secret for `/api/cron/daily` and `/api/cron/battlenet-sync`. |
@@ -207,7 +212,7 @@ GitHub Actions runs typecheck, lint, Vitest and a production build on every push
 
 **Sign-in.** All OAuth happens on the apex. A guild's `/login` redirects to `guildbook.io/login?callbackUrl=<guild URL>`. `callbackUrl` (and the Auth.js `redirect` callback, and the Battle.net `returnTo`) must be a same-origin path, the apex, a non-reserved guild subdomain over https, or a verified custom domain; anything else falls back to the apex, so there are no open redirects. The session cookie is set on `.guildbook.io` (`AUTH_COOKIE_DOMAIN`), so subdomains share it. Custom domains can't share that cookie, so the apex hands the session over once: `/api/handoff/start` mints a 60-second HMAC-signed token bound to the target host and stored (hashed) for one use; the custom domain's `/api/handoff/complete` redeems it and sets its own host-only session cookie. Locally, browsers refuse `Domain=localhost` cookies, so `*.localhost` uses the same handoff.
 
-**Creating a guild.** Signed-in users create guilds at `guildbook.io/create`: name, subdomain (live availability check), faction, ruleset, timezone, motto and directory opt-in. The creator becomes Guild Master (Admin tier) and lands on `{slug}.guildbook.io/admin`. New guilds use the neutral `standard` preset (Guild Master, Officer, Raider, Member, Trial, Applicant; a plain charter, loot policy and "Our story" page; a monogram shield). The Order's Catholic ranks, prayer, lore, crest and copy belong to the `order` preset only. Creation is limited per user (`GUILD_CREATE_LIMIT`, `GUILD_CREATE_DAILY_LIMIT`) and rate-limited.
+**Creating a guild.** Signed-in users create guilds at `guildbook.io/create`: name, subdomain (live availability check), faction, ruleset, timezone, motto and directory opt-in. The creator becomes Guild Master (Admin tier) and lands on `{slug}.guildbook.io/admin`. New guilds use the neutral `standard` preset (Guild Master, Officer, Raider, Member, Trial, Applicant; a plain charter, loot policy and "Our story" page; a monogram shield). The Order's Catholic ranks, prayer, lore, crest and copy belong to the `order` preset only. Creation is limited per account (`GUILD_CREATE_LIMIT`, `GUILD_CREATE_DAILY_LIMIT`, with `GUILD_CREATE_LIMIT_OVERRIDES` and `PLATFORM_ADMIN_DISCORD_IDS` for exceptions) and rate-limited. When the subdomain matching a name is taken, the form suggests ones that name what sets the new guild apart, like `oathbound-pvp`, `oathbound-horde` or `oathbound-eu`, before falling back to `oathbound-2`.
 
 **Custom domains.** Guild admins add a domain under Admin, Guild. The page shows the records to create: an A record to `76.76.21.21` (apex domains) or a CNAME to `cname.vercel-dns.com` (subdomains), plus a TXT record `_guildbook.<domain>` with a per-domain token. **Check verification** requires the TXT token (so nobody can claim a domain another guild set up) and, when `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` are set, that Vercel has the domain attached, verified and correctly configured. Only verified domains are routed, and a guild's first verified domain becomes its canonical URL.
 
@@ -253,7 +258,6 @@ src/lib/authz/          tiers + policy (pure, unit-tested)
 src/db/                 schema, client, seed data
 drizzle/                SQL migrations
 tests/                  integration tests (PGlite); e2e/ Playwright
-addons/                 in-game WoW addons (Lua), shipped as-is
 ```
 
 ### Vigil companion
@@ -275,6 +279,6 @@ Issues and pull requests are welcome at [Guildbook/guildbook](https://github.com
 
 ## License
 
-Guildbook is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified version as a network service, you must make your source available to its users. The license does not cover Blizzard artwork (the icons in `public/icons/classes/` and `public/icons/factions/`, see their `NOTICE` files) or the bundled fonts (see `scripts/fonts/OFL.txt`).
+Guildbook is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified version as a network service, you must make your source available to its users. The license does not cover Blizzard artwork (the icons in `public/icons/classes/` and `public/icons/factions/`, and the guild tabard emblems in `public/tabard/`, see their `NOTICE` files) or the bundled fonts (see `scripts/fonts/OFL.txt`).
 
-World of Warcraft and Blizzard Entertainment are trademarks or registered trademarks of Blizzard Entertainment, Inc. Guildbook is a non-commercial fan project, not affiliated with or endorsed by Blizzard. It uses no Blizzard logos. The class and faction icons in `public/icons/` are Blizzard artwork (see the `NOTICE` files there), and loot item icons are shown from Blizzard's render CDN without being stored.
+World of Warcraft and Blizzard Entertainment are trademarks or registered trademarks of Blizzard Entertainment, Inc. Guildbook is a non-commercial fan project, not affiliated with or endorsed by Blizzard. It uses no Blizzard logos. The class and faction icons in `public/icons/` and the guild tabard emblems in `public/tabard/` are Blizzard artwork (see the `NOTICE` files there), and loot item icons are shown from Blizzard's render CDN without being stored.

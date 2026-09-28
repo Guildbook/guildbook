@@ -29,7 +29,7 @@ const features = (domain: string): { icon: FeatureIcon; title: string; body: str
 
 const steps = [
   { title: "Sign in with Discord", body: "One Guildbook account works for every guild. There are no passwords to remember." },
-  { title: "Name your guild", body: "Pick a subdomain, faction and timezone. Your site is live the moment you create it." },
+  { title: "Name your guild", body: "Pick a subdomain, region, faction and timezone. Your site starts as a private draft, and you publish it when it's ready." },
   { title: "Open your doors", body: "Share the link. Recruits apply, officers review and members sign in with the same account." },
 ];
 

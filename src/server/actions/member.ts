@@ -69,6 +69,12 @@ export async function applyAction(slug: string, _prev: ActionResult | null, fd: 
   });
 }
 
+/** Applying to a draft guild through its private invite link. */
+export async function applyWithInviteAction(slug: string, invite: string, prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  fd.set("invite", invite);
+  return applyAction(slug, prev, fd);
+}
+
 export async function withdrawApplicationAction(
   slug: string,
   applicationId: string,

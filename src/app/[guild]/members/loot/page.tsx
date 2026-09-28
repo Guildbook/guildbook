@@ -5,6 +5,7 @@ import { EmptyState, PageHeader, Panel } from "@/components/ui";
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
 import { formatCalendarDate } from "@/lib/format";
+import { guildWording } from "@/lib/guild-wording";
 import { LOOT_RESPONSE_LABELS, LOOT_RESPONSES, type LootResponse } from "@/lib/loot/constants";
 import { guildHref } from "@/lib/paths";
 import { requireLootPage } from "@/server/loot-page";
@@ -19,14 +20,14 @@ function isResponse(v: unknown): v is LootResponse {
 export default async function LootPage({ params, searchParams }: PageProps<"/[guild]/members/loot">) {
   const { guild: slug } = await params;
   const sp = await searchParams;
-  const { actor } = await requireLootPage(slug, guildHref(slug, "/members/loot"));
+  const { guild, actor } = await requireLootPage(slug, guildHref(slug, "/members/loot"));
   const response = isResponse(sp.response) ? sp.response : null;
   const [nights, rows] = await Promise.all([listRaidNights(db, actor, 12), listLoot(db, actor, { response, limit: 200 })]);
   const base = guildHref(slug, "/members/loot");
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Loot" eyebrow="The spoils of the Order">
+      <PageHeader title="Loot" eyebrow={guildWording(guild).lootEyebrow}>
         Every item the raid has handed out, as recorded by the officers.
         {can(actor, "loot.award") && (
           <>

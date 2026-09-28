@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Markdown } from "@/components/markdown";
+import { EmptyState } from "@/components/ui";
 import { db } from "@/db";
 import { LORE_MD, LORE_SLUG, LORE_TITLE } from "@/lib/lore";
 import { getGuild } from "@/server/context";
@@ -42,7 +43,12 @@ const FURTHER_READING = [
 async function loadLore(slug: string) {
   const guild = await getGuild(slug);
   const page = await getContentPage(db, guild.id, LORE_SLUG);
-  return { guild, title: page?.title || LORE_TITLE, bodyMd: page?.bodyMd.trim() ? page.bodyMd : LORE_MD };
+  const order = guild.preset === "order";
+  return {
+    guild,
+    title: page?.title || (order ? LORE_TITLE : "Our Story"),
+    bodyMd: page?.bodyMd.trim() ? page.bodyMd : order ? LORE_MD : null,
+  };
 }
 
 export async function generateMetadata({ params }: PageProps<"/[guild]/lore">): Promise<Metadata> {
@@ -66,16 +72,20 @@ export default async function LorePage({ params }: PageProps<"/[guild]/lore">) {
     <div className="mx-auto max-w-3xl">
       <header className="mb-8 text-center sm:mb-10">
         {motto && <p className="font-display text-xs tracking-[0.35em] text-crimson-bright uppercase">{motto}</p>}
-        <h1 className="mt-3 font-title text-3xl text-gold sm:text-5xl">{title}</h1>
+        <h1 className="mt-3 font-title text-3xl break-words text-gold sm:text-5xl">{title}</h1>
         <hr className="rule-gold mx-auto mt-5 w-48" />
-        <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted italic sm:text-base">
+        <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed break-words text-muted italic sm:text-base">
           {order ? `How the ${guild.name} sees the world it plays in, and the Light beyond it.` : `The story of ${guild.name}.`}
         </p>
       </header>
 
-      <article className="parchment lore px-5 py-8 sm:px-12 sm:py-12">
-        <Markdown>{bodyMd}</Markdown>
-      </article>
+      {bodyMd ? (
+        <article className="parchment lore px-5 py-8 sm:px-12 sm:py-12">
+          <Markdown>{bodyMd}</Markdown>
+        </article>
+      ) : (
+        <EmptyState>{guild.name} has not written its story yet.</EmptyState>
+      )}
 
       {order && (
       <div className="mt-8 grid gap-6 md:grid-cols-2">
