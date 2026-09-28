@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { FactionBadge, PageHeader, Panel } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
+import { FACTION_OPTIONS, plainOptions } from "@/components/select-options";
 import { db } from "@/db";
-import { FACTION_LABELS, FACTIONS } from "@/lib/game";
 import { formatDate } from "@/lib/format";
 import { guildHref } from "@/lib/paths";
 import {
@@ -32,27 +33,20 @@ export default async function AdminProgressionPage({ params }: PageProps<"/[guil
           className={`grid gap-3 sm:items-end ${guild.faction ? "sm:grid-cols-3" : "sm:grid-cols-4"}`}
         >
           <Field label="Boss" name="bossId">
-            <select id="bossId" name="bossId" className="field" required>
-              {progression.map((i) => (
-                <optgroup key={i.id} label={i.name}>
-                  {i.bosses.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <Listbox
+              id="bossId"
+              name="bossId"
+              options={progression.flatMap((i) => i.bosses.map((b) => ({ value: b.id, label: b.name, group: i.name })))}
+              placeholder="Choose a boss"
+              requiredMessage="Choose a boss"
+              required
+              searchable={progression.reduce((n, i) => n + i.bosses.length, 0) > 12}
+              searchPlaceholder="Search bosses"
+            />
           </Field>
           {!guild.faction && (
             <Field label="Faction" name="faction">
-              <select id="faction" name="faction" className="field">
-                {FACTIONS.map((f) => (
-                  <option key={f} value={f}>
-                    {FACTION_LABELS[f]}
-                  </option>
-                ))}
-              </select>
+              <Listbox id="faction" name="faction" options={FACTION_OPTIONS} />
             </Field>
           )}
           <Field label="Date" name="killedOn">
@@ -108,13 +102,7 @@ export default async function AdminProgressionPage({ params }: PageProps<"/[guil
             <input id="inst-short" name="shortName" className="field" required />
           </Field>
           <Field label="Size" name="size">
-            <select id="inst-size" name="size" className="field" defaultValue="40">
-              {[10, 20, 25, 40].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <Listbox id="inst-size" name="size" aria-label="Size" options={plainOptions(["10", "20", "25", "40"])} defaultValue="40" />
           </Field>
           <SubmitButton>Add instance</SubmitButton>
           <div className="sm:col-span-4">

@@ -29,7 +29,7 @@ test("an officer imports a Gargul export after reviewing names, and reverses an 
 
   await expect(page).toHaveURL(/\/admin\/loot\/import\?batch=/);
   await expect(main.getByRole("heading", { name: "Review import" })).toBeVisible();
-  await expect(main.getByLabel("Who is Cassian?")).toHaveValue(/^char:/);
+  await expect(main.getByLabel("Who is Cassian?")).toHaveAttribute("data-value", /^char:/);
   await main.getByRole("button", { name: /^Commit/ }).click();
 
   await expect(page).toHaveURL(/\/admin\/loot$/);

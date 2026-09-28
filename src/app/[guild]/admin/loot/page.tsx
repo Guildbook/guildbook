@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { LootTable } from "@/components/loot-table";
 import { PageHeader, Panel } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
 import { fullName } from "@/lib/game";
@@ -43,33 +44,35 @@ export default async function AdminLootPage({ params }: PageProps<"/[guild]/admi
             ))}
           </datalist>
           <Field label="Recipient" name="characterId" hint="Leave empty when it was disenchanted or banked">
-            <select id="characterId" name="characterId" className="field" defaultValue="">
-              <option value="">Nobody</option>
-              {options.characters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {fullName(c.name, c.surname)}
-                </option>
-              ))}
-            </select>
+            <Listbox
+              id="characterId"
+              name="characterId"
+              options={[{ value: "", label: "Nobody" }, ...options.characters.map((c) => ({ value: c.id, label: fullName(c.name, c.surname) }))]}
+              defaultValue=""
+              searchable={options.characters.length > 12}
+              searchPlaceholder="Search characters"
+            />
           </Field>
           <Field label="Awarded for" name="response">
-            <select id="response" name="response" className="field" defaultValue="main_spec">
-              {LOOT_RESPONSES.map((r) => (
-                <option key={r} value={r}>
-                  {LOOT_RESPONSE_LABELS[r]}
-                </option>
-              ))}
-            </select>
+            <Listbox
+              id="response"
+              name="response"
+              options={LOOT_RESPONSES.map((r) => ({ value: r, label: LOOT_RESPONSE_LABELS[r] }))}
+              defaultValue="main_spec"
+            />
           </Field>
           <Field label="Boss" name="bossId">
-            <select id="bossId" name="bossId" className="field" defaultValue="">
-              <option value="">Not recorded</option>
-              {options.bosses.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.instanceName}, {b.name}
-                </option>
-              ))}
-            </select>
+            <Listbox
+              id="bossId"
+              name="bossId"
+              options={[
+                { value: "", label: "Not recorded" },
+                ...options.bosses.map((b) => ({ value: b.id, label: b.name, group: b.instanceName })),
+              ]}
+              defaultValue=""
+              searchable={options.bosses.length > 12}
+              searchPlaceholder="Search bosses"
+            />
           </Field>
           <Field label="Raid night" name="awardedOn">
             <input id="awardedOn" name="awardedOn" type="date" className="field" defaultValue={today} max={today} required />

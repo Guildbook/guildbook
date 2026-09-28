@@ -2,6 +2,7 @@ import { ActionForm, Field, FieldError, FormMessage, SubmitButton } from "@/comp
 import { FactionChoice } from "@/components/faction-choice";
 import { RegionChoice } from "@/components/region";
 import { RulesetChoice } from "@/components/ruleset";
+import { TimezoneSelect } from "@/components/timezone-select";
 import type { Faction, Region, Ruleset } from "@/lib/game";
 import type { ActionResult } from "@/server/action-types";
 
@@ -53,8 +54,8 @@ export function GuildSettingsForm({
       <Field label="Home page description" name="description">
         <textarea id="description" name="description" className="field" defaultValue={guild.description} />
       </Field>
-      <Field label="Server timezone" name="timezone" hint="IANA name, e.g. America/New_York or America/Los_Angeles">
-        <input id="timezone" name="timezone" className="field" defaultValue={guild.timezone} required />
+      <Field label="Server timezone" name="timezone" hint="Raid times and loot dates are shown in this timezone.">
+        <TimezoneSelect defaultValue={guild.timezone} required />
       </Field>
       <fieldset>
         <legend className="field-label">Region</legend>

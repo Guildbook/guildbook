@@ -1,9 +1,9 @@
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
-import { NavLink } from "@/components/nav-link";
 import { can } from "@/lib/authz/policy";
 import { guildHref } from "@/lib/paths";
 import { dismissAdminNoticeAction } from "@/server/actions/verification";
 import { getGuild, getViewer } from "@/server/context";
+import { AdminNav } from "./admin-nav";
 
 /** Navigation only. Each admin page and service enforces its own permission. */
 export default async function AdminLayout({ children, params }: LayoutProps<"/[guild]/admin">) {
@@ -22,29 +22,17 @@ export default async function AdminLayout({ children, params }: LayoutProps<"/[g
     { href: h("/recruitment"), label: "Recruitment" },
     { href: h("/progression"), label: "Progression" },
     ...(can(viewer.actor, "loot.award") ? [{ href: h("/loot"), label: "Loot" }] : []),
-    { href: h("/addons"), label: "Addons" },
     ...(can(viewer.actor, "guild.settings") ? [{ href: h("/guild"), label: "Guild" }] : []),
+  ];
+  const more = [
+    { href: h("/addons"), label: "Addons" },
     { href: h("/audit"), label: "Audit log" },
   ];
 
   return (
     <div>
       {can(viewer.actor, "admin.area") && (
-        <nav aria-label="Admin" className="-mx-4 mb-6 overflow-x-auto border-b border-line px-4">
-          <ul className="flex gap-1 whitespace-nowrap">
-            {links.map((l) => (
-              <li key={l.href}>
-                <NavLink
-                  href={l.href}
-                  exact={l.exact}
-                  className="inline-block rounded-t border-b-2 border-transparent px-3 py-2.5 font-display text-xs tracking-wider text-muted uppercase hover:text-gold aria-[current=page]:border-gold aria-[current=page]:bg-gold/10 aria-[current=page]:text-gold"
-                >
-                  {l.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <AdminNav links={links} more={more} />
       )}
       {guild.adminNotice && can(viewer.actor, "admin.area") && (
         <aside

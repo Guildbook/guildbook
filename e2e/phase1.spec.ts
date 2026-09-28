@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { randomCharacterName, signIn } from "./helpers";
+import { chooseOption, randomCharacterName, signIn } from "./helpers";
 
 test.describe("public pages", () => {
   test("home shows the guild, motto, schedule and recruitment", async ({ page, isMobile }) => {
@@ -157,9 +157,9 @@ test("apply, officer accepts, new member appears on the roster", async ({ page, 
   await page.getByLabel("First name").fill(characterName);
   await page.getByLabel("Surname").fill("Faithful");
   await expect(page.getByLabel("Faction", { exact: true })).toHaveCount(0);
-  await page.getByLabel("Class", { exact: true }).selectOption("paladin");
-  await page.getByLabel("Spec", { exact: true }).selectOption("Protection");
-  await page.getByLabel("Raid role", { exact: true }).selectOption("tank");
+  await chooseOption(page.getByLabel("Class", { exact: true }), "paladin");
+  await chooseOption(page.getByLabel("Spec", { exact: true }), "Protection");
+  await chooseOption(page.getByLabel("Raid role", { exact: true }), "tank");
   await page.getByLabel("Raid experience").fill("Main tank through Naxxramas in Classic Era.");
   await page.getByLabel("Availability").fill("Sundays 7-10 PM Eastern.");
   await page.getByLabel("Why the Order of Saint Michael?").fill("A guild that raids well and keeps the faith.");
@@ -231,9 +231,9 @@ test("a member registers an alt and makes it their main", async ({ page }) => {
   await page.getByRole("link", { name: "Register character" }).click();
   await page.getByLabel("First name").fill(alt);
   await page.getByLabel("Surname").fill("Oakenfield");
-  await page.getByLabel("Class", { exact: true }).selectOption("hunter");
-  await page.getByLabel("Spec", { exact: true }).selectOption("Beast Mastery");
-  await page.getByLabel("Raid role", { exact: true }).selectOption("ranged");
+  await chooseOption(page.getByLabel("Class", { exact: true }), "hunter");
+  await chooseOption(page.getByLabel("Spec", { exact: true }), "Beast Mastery");
+  await chooseOption(page.getByLabel("Raid role", { exact: true }), "ranged");
   await page.getByLabel("Level", { exact: true }).fill("60");
   await page.getByRole("checkbox", { name: "Herbalism" }).check();
   await page.getByRole("button", { name: "Register" }).click();

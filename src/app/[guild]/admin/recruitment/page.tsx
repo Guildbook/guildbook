@@ -5,8 +5,9 @@ import { ClassSelect } from "@/components/class-select";
 import { isOpenPriority, PriorityIcon } from "@/components/priority-icon";
 import { PrioritySelect } from "@/components/priority-select";
 import { ClassName, FactionBadge, PageHeader, Panel, RoleBadge } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
+import { ROLE_OPTIONS, FACTION_OPTIONS } from "@/components/select-options";
 import { db } from "@/db";
-import { FACTION_LABELS, FACTIONS, ROLE_LABELS, ROLES } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { setRecruitmentNeedAction, setRecruitmentOpenAction } from "@/server/actions/admin";
 import { requirePage } from "@/server/context";
@@ -37,22 +38,9 @@ export default async function RecruitmentPage({ params }: PageProps<"/[guild]/ad
       <Panel title="Set a need">
         <ActionForm action={setRecruitmentNeedAction.bind(null, slug)} className="grid gap-3 sm:grid-cols-6 sm:items-end">
           <ClassSelect name="wowClass" className="sm:col-span-1" />
-          <select name="role" className="field" aria-label="Role">
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
+          <Listbox name="role" aria-label="Role" options={ROLE_OPTIONS} />
           {!guild.faction && (
-            <select name="faction" className="field" aria-label="Faction">
-              <option value="">Either faction</option>
-              {FACTIONS.map((f) => (
-                <option key={f} value={f}>
-                  {FACTION_LABELS[f]}
-                </option>
-              ))}
-            </select>
+            <Listbox name="faction" aria-label="Faction" options={[{ value: "", label: "Either faction" }, ...FACTION_OPTIONS]} />
           )}
           <PrioritySelect name="priority" />
           <input name="note" className="field" placeholder="Note (optional)" aria-label="Note" />

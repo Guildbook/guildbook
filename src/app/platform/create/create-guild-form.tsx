@@ -6,29 +6,10 @@ import { FactionChoice } from "@/components/faction-choice";
 import { PresetChoices } from "@/components/rank-preset-choices";
 import { RegionChoice } from "@/components/region";
 import { RulesetChoice } from "@/components/ruleset";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { SLUG_MAX, slugProblem, suggestSlug } from "@/lib/hosts";
 import { DEFAULT_RANK_PRESET } from "@/lib/rank-presets";
 import { checkSlugAction, createGuildAction } from "@/server/actions/platform";
-
-const TIMEZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Phoenix",
-  "America/Los_Angeles",
-  "America/Anchorage",
-  "Pacific/Honolulu",
-  "America/Sao_Paulo",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "Europe/Stockholm",
-  "Europe/Moscow",
-  "Asia/Seoul",
-  "Asia/Taipei",
-  "Australia/Perth",
-  "Australia/Sydney",
-];
 
 const PROBLEM_TEXT = {
   length: "Use 3 to 30 characters",
@@ -111,7 +92,6 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
   const [faction, setFaction] = useState("");
   const [ruleset, setRuleset] = useState("");
   const [timezone, setTimezone] = useState("America/New_York");
-  const [timezones, setTimezones] = useState(TIMEZONES);
   const [motto, setMotto] = useState("");
   const [listed, setListed] = useState(false);
   const [availability, setAvailability] = useState<Availability>({ state: "idle" });
@@ -122,7 +102,6 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
     // Syncing with the browser's timezone, which is only known after hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimezone(local);
-    setTimezones((list) => (list.includes(local) ? list : [local, ...list]));
   }, []);
 
   const problem = slug ? slugProblem(slug) : null;
@@ -231,13 +210,7 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
       </fieldset>
 
       <Field label="Timezone" name="timezone" hint="Raid times are shown in this timezone.">
-        <select id="timezone" name="timezone" className="field" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-          {timezones.map((tz) => (
-            <option key={tz} value={tz}>
-              {tz.replaceAll("_", " ")}
-            </option>
-          ))}
-        </select>
+        <TimezoneSelect value={timezone} onChange={setTimezone} required />
       </Field>
 
       <Field label="Motto" name="motto" hint="Optional. Shown under your guild's name.">

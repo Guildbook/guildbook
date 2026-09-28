@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { RankInsignia } from "@/components/rank-insignia";
 import { PageHeader, Panel } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
 import { db } from "@/db";
 import { RANK_TIERS, type RankTier, TIER_LABELS } from "@/lib/authz/tiers";
 import { MAX_IN_GAME_RANKS } from "@/lib/game";
@@ -61,13 +62,12 @@ function RankFields({
           <input id="description" name="description" className="field" defaultValue={defaults?.description} />
         </Field>
         <Field label="Tier" name="tier">
-          <select id="tier" name="tier" className="field" defaultValue={defaults?.tier ?? "member"}>
-            {RANK_TIERS.map((t) => (
-              <option key={t} value={t}>
-                {TIER_LABELS[t]}
-              </option>
-            ))}
-          </select>
+          <Listbox
+            id="tier"
+            name="tier"
+            options={RANK_TIERS.map((t) => ({ value: t, label: TIER_LABELS[t] }))}
+            defaultValue={defaults?.tier ?? "member"}
+          />
         </Field>
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input type="checkbox" name="inGame" defaultChecked={defaults?.inGame ?? true} className="h-5 w-5 accent-crimson" />
@@ -151,13 +151,12 @@ export default async function RanksPage({ params }: PageProps<"/[guild]/admin/ra
             ] as const
           ).map(([name, label, value]) => (
             <Field key={name} label={label} name={name}>
-              <select id={name} name={name} className="field" defaultValue={value ?? undefined}>
-                {ranks.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name} ({TIER_LABELS[r.tier]})
-                  </option>
-                ))}
-              </select>
+              <Listbox
+                id={name}
+                name={name}
+                options={ranks.map((r) => ({ value: r.id, label: r.name, description: TIER_LABELS[r.tier] }))}
+                defaultValue={value ?? undefined}
+              />
             </Field>
           ))}
           <div className="sm:col-span-3">

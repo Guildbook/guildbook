@@ -4,6 +4,7 @@ import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/actio
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { BlizzardItemAttribution, ItemLink } from "@/components/item-link";
 import { ClassName, PageHeader, Panel, Tag } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
 import { db } from "@/db";
 import { fullName } from "@/lib/game";
 import { formatDateTime } from "@/lib/format";
@@ -42,6 +43,11 @@ export default async function ImportLootPage({ params, searchParams }: PageProps
     const { batch, rows, names, characters, duplicateCount } = preview;
     const parser = LOOT_PARSERS.find((p) => p.id === batch.parserId);
     const fresh = rows.length - duplicateCount;
+    const decisionOptions = [
+      { value: "name", label: "Keep the name only" },
+      { value: "skip", label: "Leave these awards out" },
+      ...characters.map((c) => ({ value: `char:${c.id}`, label: fullName(c.name, c.surname), group: "Guild characters" })),
+    ];
 
     return (
       <div className="space-y-6">
@@ -82,22 +88,14 @@ export default async function ImportLootPage({ params, searchParams }: PageProps
                         </p>
                         <p className="text-xs text-muted">{n.match ? VIA_LABELS[n.match.via] : "No match on the roster"}</p>
                       </div>
-                      <select
+                      <Listbox
                         name={`decision:${n.key}`}
                         aria-label={`Who is ${n.display}?`}
-                        className="field"
+                        options={decisionOptions}
                         defaultValue={n.match ? `char:${n.match.character.id}` : "name"}
-                      >
-                        <option value="name">Keep the name only</option>
-                        <option value="skip">Leave these awards out</option>
-                        <optgroup label="Guild characters">
-                          {characters.map((c) => (
-                            <option key={c.id} value={`char:${c.id}`}>
-                              {fullName(c.name, c.surname)}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
+                        searchable={characters.length > 12}
+                        searchPlaceholder="Search characters"
+                      />
                     </li>
                   ))}
                 </ul>
@@ -189,14 +187,12 @@ export default async function ImportLootPage({ params, searchParams }: PageProps
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Format" name="parserId">
-              <select id="parserId" name="parserId" className="field" defaultValue="">
-                <option value="">Detect automatically</option>
-                {LOOT_PARSERS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              <Listbox
+                id="parserId"
+                name="parserId"
+                options={[{ value: "", label: "Detect automatically" }, ...LOOT_PARSERS.map((p) => ({ value: p.id, label: p.label }))]}
+                defaultValue=""
+              />
             </Field>
             <Field label="Gargul custom format" name="template" hint={`Only for Gargul's custom export. Default: ${GARGUL_DEFAULT_TEMPLATE}`}>
               <input id="template" name="template" className="field font-mono text-xs" placeholder={GARGUL_DEFAULT_TEMPLATE} />

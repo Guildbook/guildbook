@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { randomCharacterName, signIn } from "./helpers";
+import { chooseOption, randomCharacterName, signIn } from "./helpers";
 
 // Runs against BATTLENET_MOCK=1: linking skips Battle.net and returns fixture characters
 // (Aldric, Brenna and Corwin for the Alliance; a Horde warrior, a Death Knight and Isolde, who is in
@@ -38,8 +38,8 @@ test("an applicant links Battle.net, picks a character, and the officer sees it 
   await expect(page.getByLabel("Class", { exact: true })).toHaveValue("Priest");
   await expect(page.getByLabel("Realm", { exact: true })).toHaveCount(0);
   await page.getByLabel("Surname").fill(surname);
-  await page.getByLabel("Spec", { exact: true }).selectOption("Holy");
-  await page.getByLabel("Raid role", { exact: true }).selectOption("healer");
+  await chooseOption(page.getByLabel("Spec", { exact: true }), "Holy");
+  await chooseOption(page.getByLabel("Raid role", { exact: true }), "healer");
   await fillFreeText(page, applicantId);
   await page.getByRole("button", { name: "Submit application" }).click();
   await expect(page.getByRole("heading", { name: "Your application" })).toBeInViewport();
@@ -74,9 +74,9 @@ test("without Battle.net, manual entry still works and the officer sees it unver
   await expect(page.getByRole("radio")).toHaveCount(0);
   await page.getByLabel("First name").fill(name);
   await page.getByLabel("Surname").fill("Handwritten");
-  await page.getByLabel("Class", { exact: true }).selectOption("mage");
-  await page.getByLabel("Spec", { exact: true }).selectOption("Frost");
-  await page.getByLabel("Raid role", { exact: true }).selectOption("ranged");
+  await chooseOption(page.getByLabel("Class", { exact: true }), "mage");
+  await chooseOption(page.getByLabel("Spec", { exact: true }), "Frost");
+  await chooseOption(page.getByLabel("Raid role", { exact: true }), "ranged");
   await fillFreeText(page, applicantId);
   await page.getByRole("button", { name: "Submit application" }).click();
   await expect(page.getByRole("heading", { name: "Your application" })).toBeInViewport();
@@ -105,8 +105,8 @@ test("a member imports verified characters and an officer syncs their levels", a
     ["Brenna", "Shadow", "ranged"],
   ] as const) {
     await page.getByLabel(`${name} surname`).fill(surname);
-    await page.getByLabel(`${name} spec`).selectOption(spec);
-    await page.getByLabel(`${name} role`).selectOption(role);
+    await chooseOption(page.getByLabel(`${name} spec`), spec);
+    await chooseOption(page.getByLabel(`${name} role`), role);
     await page.locator("li", { has: page.getByLabel(`${name} surname`) }).getByRole("button", { name: "Import" }).click();
     await expect(page.getByText(`Imported as ${name} ${surname}`)).toBeVisible();
   }

@@ -33,9 +33,15 @@ function failingFields(state: ActionResult | null): [string, string][] {
   return Object.entries(state.fieldErrors).flatMap(([name, errors]) => (errors?.length ? [[name, errors[0]!] as [string, string]] : []));
 }
 
+/** Native controls, plus custom ones (`Listbox`) whose trigger names its field with `data-field-name`. */
+const CONTROLS = "input, select, textarea, [data-field-name]";
+
 function fieldControls(form: HTMLFormElement, name: string): HTMLElement[] {
-  return [...form.querySelectorAll<HTMLElement>("input, select, textarea")].filter(
-    (el) => el.getAttribute("name") === name && el.getAttribute("type") !== "hidden",
+  return [...form.querySelectorAll<HTMLElement>(CONTROLS)].filter(
+    (el) =>
+      (el.dataset.fieldName ?? el.getAttribute("name")) === name &&
+      el.getAttribute("type") !== "hidden" &&
+      !el.hasAttribute("data-listbox-value"),
   );
 }
 
@@ -90,7 +96,7 @@ export function ActionForm({
     const failing = failingFields(state);
     if (failing.length === 0) return;
     let first: { el: HTMLElement; index: number } | null = null;
-    const all = [...form.querySelectorAll<HTMLElement>("input, select, textarea")];
+    const all = [...form.querySelectorAll<HTMLElement>(CONTROLS)];
     for (const [name] of failing) {
       const slot = document.getElementById(errorSlotId(formId, name));
       const describer = slot ? slot.id : summaryId(formId);

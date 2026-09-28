@@ -4,6 +4,8 @@ import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form"
 import { AddonIcon } from "@/components/addon-icon";
 import { BattlenetAccount, BattlenetNotice, EmptySnapshotNote, LinkBattlenetButton } from "@/components/battlenet";
 import { RegionTag } from "@/components/region";
+import { Listbox } from "@/components/listbox";
+import { plainOptions, ROLE_OPTIONS } from "@/components/select-options";
 import {
   CharacterLink,
   ClassName,
@@ -18,7 +20,7 @@ import {
 import { db } from "@/db";
 import type { BattlenetCharacterSnapshot } from "@/db/schema";
 import { formatDateTime } from "@/lib/format";
-import { CLASS_INFO, fullName, PROFESSION_LABELS, ROLE_LABELS, ROLES } from "@/lib/game";
+import { CLASS_INFO, fullName, PROFESSION_LABELS } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { importBattlenetCharacterAction } from "@/server/actions/battlenet";
 import { archiveCharacterAction, setMainCharacterAction } from "@/server/actions/member";
@@ -85,36 +87,28 @@ function ImportRow({
             />
           </label>
         )}
-        <label className="flex flex-col text-xs text-muted">
-          Spec
-          <select
+        <div className="flex flex-col text-xs text-muted">
+          <span aria-hidden>Spec</span>
+          <Listbox
             name="spec"
+            options={plainOptions(info.specs)}
             defaultValue={existing?.spec}
             aria-label={`${bnet.name} spec`}
-            className="field mt-1 min-h-9 w-36 py-1 text-sm"
-          >
-            {info.specs.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col text-xs text-muted">
-          Role
-          <select
+            size="sm"
+            className="mt-1 w-36"
+          />
+        </div>
+        <div className="flex flex-col text-xs text-muted">
+          <span aria-hidden>Role</span>
+          <Listbox
             name="role"
+            options={ROLE_OPTIONS}
             defaultValue={existing?.role}
             aria-label={`${bnet.name} role`}
-            className="field mt-1 min-h-9 w-32 py-1 text-sm"
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
-        </label>
+            size="sm"
+            className="mt-1 w-32"
+          />
+        </div>
         <SubmitButton size="sm" pendingLabel="Importing…">
           {existing ? "Verify" : "Import"}
         </SubmitButton>

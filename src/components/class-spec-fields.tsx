@@ -2,17 +2,10 @@
 
 import { useState } from "react";
 import { Field } from "@/components/action-form";
-import {
-  CLASS_INFO,
-  CLASSES,
-  FACTION_LABELS,
-  FACTIONS,
-  type Faction,
-  ROLE_LABELS,
-  ROLES,
-  type RaidRole,
-  type WowClass,
-} from "@/lib/game";
+import { CLASS_OPTIONS } from "@/components/class-select";
+import { Listbox } from "@/components/listbox";
+import { FACTION_OPTIONS, plainOptions, ROLE_OPTIONS } from "@/components/select-options";
+import { CLASS_INFO, type Faction, type RaidRole, type WowClass } from "@/lib/game";
 
 /**
  * Faction, class, spec and role pickers. Spec options follow the selected class; any class may be either
@@ -39,13 +32,7 @@ export function ClassSpecFields({
     <div className="grid gap-4 sm:grid-cols-2">
       {showFaction && !lockedClass && (
         <Field label="Faction" name="faction">
-          <select id="faction" name="faction" className="field" defaultValue={defaults?.faction ?? "alliance"}>
-            {FACTIONS.map((f) => (
-              <option key={f} value={f}>
-                {FACTION_LABELS[f]}
-              </option>
-            ))}
-          </select>
+          <Listbox id="faction" name="faction" options={FACTION_OPTIONS} defaultValue={defaults?.faction ?? "alliance"} />
         </Field>
       )}
       <Field label="Class" name="wowClass">
@@ -61,43 +48,24 @@ export function ClassSpecFields({
             <input type="hidden" name="wowClass" value={lockedClass} />
           </>
         ) : (
-          <select
+          <Listbox
             id="wowClass"
             name="wowClass"
-            className="field"
+            options={CLASS_OPTIONS}
             value={wowClass}
-            style={{ color: CLASS_INFO[wowClass].color }}
-            onChange={(e) => {
-              const next = e.target.value as WowClass;
+            onChange={(v) => {
+              const next = v as WowClass;
               setWowClass(next);
               setSpec(CLASS_INFO[next].specs[0] ?? "");
             }}
-          >
-            {CLASSES.map((c) => (
-              <option key={c} value={c} style={{ color: CLASS_INFO[c].color }}>
-                {CLASS_INFO[c].label}
-              </option>
-            ))}
-          </select>
+          />
         )}
       </Field>
       <Field label="Spec" name="spec">
-        <select id="spec" name="spec" className="field" value={spec} onChange={(e) => setSpec(e.target.value)}>
-          {specs.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <Listbox id="spec" name="spec" options={plainOptions(specs)} value={spec} onChange={setSpec} />
       </Field>
       <Field label="Raid role" name="role">
-        <select id="role" name="role" className="field" defaultValue={defaults?.role ?? "melee"}>
-          {ROLES.map((r) => (
-            <option key={r} value={r}>
-              {ROLE_LABELS[r]}
-            </option>
-          ))}
-        </select>
+        <Listbox id="role" name="role" options={ROLE_OPTIONS} defaultValue={defaults?.role ?? "melee"} />
       </Field>
     </div>
   );

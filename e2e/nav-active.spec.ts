@@ -44,11 +44,31 @@ test("the admin nav marks only the current section", async ({ page, isMobile }) 
   await expect(admin.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
   await expect(admin.locator('a[aria-current="page"]')).toHaveCount(1);
 
-  for (const label of ["Applications", "Members", "Ranks", "Schedule", "Recruitment", "Progression", "Addons", "Guild", "Audit log"]) {
+  for (const label of ["Applications", "Members", "Ranks", "Schedule", "Recruitment", "Progression", "Guild"]) {
     await admin.getByRole("link", { name: label, exact: true }).click();
     await expect(admin.getByRole("link", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
     await expect(admin.locator('a[aria-current="page"]')).toHaveCount(1);
+    // The open tab is scrolled into view on narrow screens.
+    await expect(admin.getByRole("link", { name: label, exact: true })).toBeInViewport();
   }
+
+  // Rarely used sections sit in the More menu, which shows as current while one of them is open.
+  const more = admin.getByRole("button", { name: "More" });
+  for (const label of ["Addons", "Audit log"]) {
+    await more.click();
+    await admin.getByRole("menuitem", { name: label }).click();
+    await expect(page).toHaveURL(label === "Addons" ? /\/admin\/addons$/ : /\/admin\/audit$/);
+    await expect(more).toHaveAttribute("data-current", "true");
+    await expect(admin.locator('a[aria-current="page"]')).toHaveCount(1);
+  }
+  await more.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(admin.getByRole("menuitem", { name: "Addons" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(admin.getByRole("menuitem", { name: "Audit log" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(admin.getByRole("menu")).toBeHidden();
+  await expect(more).toBeFocused();
 
   const nav = await headerNav(page, isMobile);
   await expect(nav.getByRole("link", { name: "Admin", exact: true })).toHaveAttribute("aria-current", "page");

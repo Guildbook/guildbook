@@ -21,6 +21,8 @@ import {
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { listDirectoryGuilds } from "@/server/services/platform";
 import { GuildCard } from "../guild-card";
+import { DirectoryFilters } from "./directory-filters";
+import { directoryHref } from "./filters";
 
 export const metadata: Metadata = {
   title: "Guild directory",
@@ -52,14 +54,6 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
   const faction = pick<Faction>(FACTIONS, sp.faction);
   const ruleset = pick<Ruleset>(RULESETS, sp.ruleset);
   const [current, guilds] = await Promise.all([getRequestHost(), listDirectoryGuilds(db, { region, faction, ruleset })]);
-  const href = (next: { region?: Region; faction?: Faction; ruleset?: Ruleset }) => {
-    const params = new URLSearchParams();
-    if (next.region) params.set("region", next.region);
-    if (next.faction) params.set("faction", next.faction);
-    if (next.ruleset) params.set("ruleset", next.ruleset);
-    const query = params.toString();
-    return query ? `/guilds?${query}` : "/guilds";
-  };
   const filtered = Boolean(region || faction || ruleset);
 
   return (
@@ -68,43 +62,48 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
         Guilds that chose to be listed. Verified guilds, whose Guild Master proved their in-game rank through Battle.net, come
         first. Officers can list theirs under Admin, then Guild.
       </PageHeader>
-      <nav aria-label="Filter guilds" className="mb-6 space-y-2" data-testid="directory-filters">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Region</span>
-          <FilterChip href={href({ faction, ruleset })} active={!region}>
-            All
-          </FilterChip>
-          {REGIONS.map((r) => (
-            <FilterChip key={r} href={href({ region: r, faction, ruleset })} active={region === r}>
-              <RegionIcon size={13} className="text-gold-dim" />
-              {REGION_LABELS[r]}
-            </FilterChip>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Faction</span>
-          <FilterChip href={href({ region, ruleset })} active={!faction}>
-            All
-          </FilterChip>
-          {FACTIONS.map((f) => (
-            <FilterChip key={f} href={href({ region, faction: f, ruleset })} active={faction === f}>
-              <FactionIcon faction={f} size={14} decorative />
-              {FACTION_LABELS[f]}
-            </FilterChip>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Ruleset</span>
-          <FilterChip href={href({ region, faction })} active={!ruleset}>
-            All
-          </FilterChip>
-          {RULESETS.map((r) => (
-            <FilterChip key={r} href={href({ region, faction, ruleset: r })} active={ruleset === r}>
-              <RulesetIcon ruleset={r} size={13} className="text-gold-dim" />
-              {RULESET_INFO[r].label}
-            </FilterChip>
-          ))}
-        </div>
+      <nav aria-label="Filter guilds" className="mb-6" data-testid="directory-filters">
+        <DirectoryFilters region={region} faction={faction} ruleset={ruleset} />
+        <noscript>
+          <div className="mt-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Region</span>
+              <FilterChip href={directoryHref({ faction, ruleset })} active={!region}>
+                All
+              </FilterChip>
+              {REGIONS.map((r) => (
+                <FilterChip key={r} href={directoryHref({ region: r, faction, ruleset })} active={region === r}>
+                  <RegionIcon size={13} className="text-gold-dim" />
+                  {REGION_LABELS[r]}
+                </FilterChip>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Faction</span>
+              <FilterChip href={directoryHref({ region, ruleset })} active={!faction}>
+                All
+              </FilterChip>
+              {FACTIONS.map((f) => (
+                <FilterChip key={f} href={directoryHref({ region, faction: f, ruleset })} active={faction === f}>
+                  <FactionIcon faction={f} size={14} decorative />
+                  {FACTION_LABELS[f]}
+                </FilterChip>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Ruleset</span>
+              <FilterChip href={directoryHref({ region, faction })} active={!ruleset}>
+                All
+              </FilterChip>
+              {RULESETS.map((r) => (
+                <FilterChip key={r} href={directoryHref({ region, faction, ruleset: r })} active={ruleset === r}>
+                  <RulesetIcon ruleset={r} size={13} className="text-gold-dim" />
+                  {RULESET_INFO[r].label}
+                </FilterChip>
+              ))}
+            </div>
+          </div>
+        </noscript>
       </nav>
       {guilds.length === 0 ? (
         <p className="text-center text-muted">

@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** Signs in through the test-only credentials provider (AUTH_TEST_MODE=1). Seeded users use `seed-<name>`. */
 export async function signIn(page: Page, discordId: string, name: string, callbackUrl = "/") {
@@ -20,4 +20,21 @@ export function randomCharacterName(): string {
 
 export async function expectOnPage(page: Page, text: string | RegExp) {
   await expect(page.getByText(text).first()).toBeVisible();
+}
+
+/**
+ * Picks an option in a `Listbox` by its value or its exact label. Retries the opening click, since a click that lands
+ * before hydration does nothing.
+ */
+export async function chooseOption(control: Locator, option: string) {
+  const page = control.page();
+  // The open listbox shares the trigger's label; pick the trigger.
+  const trigger = control.and(page.locator("[data-listbox-trigger]"));
+  const listbox = page.getByRole("listbox");
+  await expect(async () => {
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+    await expect(listbox).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await listbox.locator(`[role="option"][data-value="${option}"]`).or(listbox.getByRole("option", { name: option, exact: true })).first().click();
+  await expect(listbox).toHaveCount(0);
 }

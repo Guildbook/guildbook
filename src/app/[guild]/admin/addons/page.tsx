@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { AddonIcon } from "@/components/addon-icon";
 import { PageHeader, Panel } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
 import { db } from "@/db";
 import type { addons } from "@/db/schema";
 import { ADDON_ICON_INFO, addonIconFor } from "@/lib/addon-icons";
@@ -41,13 +42,13 @@ function AddonFields({ addon }: { addon?: typeof addons.$inferSelect }) {
         </Field>
       </div>
       <Field label="Status" name="status">
-        <select id={`${p}-status`} name="status" className="field" defaultValue={addon?.status ?? "planned"}>
-          {STATUSES.map(([v, l]) => (
-            <option key={v} value={v}>
-              {l}
-            </option>
-          ))}
-        </select>
+        <Listbox
+          id={`${p}-status`}
+          name="status"
+          aria-label="Status"
+          options={STATUSES.map(([value, label]) => ({ value, label }))}
+          defaultValue={addon?.status ?? "planned"}
+        />
       </Field>
       <Field label="Version" name="version">
         <input id={`${p}-version`} name="version" className="field" defaultValue={addon?.version ?? ""} />

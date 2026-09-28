@@ -4,6 +4,9 @@ import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ClassIcon } from "@/components/class-icon";
+import { Listbox } from "@/components/listbox";
+import { classColor } from "@/components/ui";
 import type { LogScan } from "@/lib/combatlog/scan";
 import { CLASS_INFO, type WowClass } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
@@ -236,40 +239,48 @@ export function VigilUploadFlow({
         <section className="panel space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-gold">2. Who and how to judge</h2>
           <div className="grid gap-4 sm:grid-cols-3">
-            <label className="block">
+            <div>
               <span className="field-label">Player in the log</span>
-              <select className="field" value={playerGuid} onChange={(e) => choosePlayer(scan, e.target.value)} aria-label="Player in the log">
-                {scan.players.map((p) => (
-                  <option key={p.guid} value={p.guid}>
-                    {p.name}
-                    {p.isLogger ? " (you)" : ""}
-                    {p.level ? `, level ${p.level}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
+              <Listbox
+                aria-label="Player in the log"
+                value={playerGuid}
+                onChange={(guid) => choosePlayer(scan, guid)}
+                options={scan.players.map((p) => ({
+                  value: p.guid,
+                  label: `${p.name}${p.isLogger ? " (you)" : ""}`,
+                  description: p.level ? `Level ${p.level}` : undefined,
+                }))}
+                searchable={scan.players.length > 12}
+                searchPlaceholder="Search players"
+              />
+            </div>
+            <div>
               <span className="field-label">Rotation model</span>
-              <select className="field" value={modelId} onChange={(e) => setModelId(e.target.value)} aria-label="Rotation model">
-                <option value="">General review (any class)</option>
-                {ROTATION_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
+              <Listbox
+                aria-label="Rotation model"
+                value={modelId}
+                onChange={setModelId}
+                options={[{ value: "", label: "General review (any class)" }, ...ROTATION_MODELS.map((m) => ({ value: m.id, label: m.label }))]}
+              />
+            </div>
+            <div>
               <span className="field-label">Your character</span>
-              <select className="field" value={characterId} onChange={(e) => setCharacterId(e.target.value)} aria-label="Your character">
-                <option value="">Not linked</option>
-                {characters.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.surname}, {c.level} {CLASS_INFO[c.wowClass].label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Listbox
+                aria-label="Your character"
+                value={characterId}
+                onChange={setCharacterId}
+                options={[
+                  { value: "", label: "Not linked" },
+                  ...characters.map((c) => ({
+                    value: c.id,
+                    label: `${c.name} ${c.surname}`,
+                    description: `Level ${c.level} ${CLASS_INFO[c.wowClass].label}`,
+                    icon: <ClassIcon wowClass={c.wowClass} size={18} decorative />,
+                    color: classColor(c.wowClass),
+                  })),
+                ]}
+              />
+            </div>
           </div>
           <p className="text-xs text-muted">
             {model

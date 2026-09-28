@@ -1,16 +1,18 @@
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
+import { Listbox } from "@/components/listbox";
 import { VISIBILITIES, VISIBILITY_LABELS, type Visibility } from "@/lib/vigil/visibility";
 import { setVigilDefaultVisibilityAction, setVigilVisibilityAction } from "@/server/actions/vigil";
 
 function VisibilitySelect({ value, label }: { value: Visibility; label: string }) {
   return (
-    <select name="visibility" defaultValue={value} aria-label={label} className="field min-h-9 w-auto py-1 text-sm">
-      {VISIBILITIES.map((v) => (
-        <option key={v} value={v}>
-          {v === "private" ? "Private (only me)" : VISIBILITY_LABELS[v]}
-        </option>
-      ))}
-    </select>
+    <Listbox
+      name="visibility"
+      defaultValue={value}
+      aria-label={label}
+      size="sm"
+      className="min-w-44"
+      options={VISIBILITIES.map((v) => ({ value: v, label: v === "private" ? "Private (only me)" : VISIBILITY_LABELS[v] }))}
+    />
   );
 }
 

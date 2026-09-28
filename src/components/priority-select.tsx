@@ -1,36 +1,18 @@
 "use client";
 
-import clsx from "clsx";
-import { useState } from "react";
-import { isOpenPriority, PriorityIcon } from "@/components/priority-icon";
+import { Listbox } from "@/components/listbox";
+import { PriorityIcon } from "@/components/priority-icon";
 
 const PRIORITIES = ["closed", "low", "medium", "high"] as const;
 type Priority = (typeof PRIORITIES)[number];
 
-/** Native priority select with the chosen priority's icon inside the field. */
+const OPTIONS = PRIORITIES.map((p) => ({
+  value: p,
+  label: p[0]!.toUpperCase() + p.slice(1),
+  icon: p === "closed" ? undefined : <PriorityIcon priority={p} size={18} />,
+}));
+
+/** Recruitment priority listbox with each open priority's icon. */
 export function PrioritySelect({ name, defaultValue = "medium", className }: { name: string; defaultValue?: Priority; className?: string }) {
-  const [priority, setPriority] = useState<Priority>(defaultValue);
-  const icon = isOpenPriority(priority);
-  return (
-    <div className={clsx("relative", className)}>
-      {icon && (
-        <span aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 flex -translate-y-1/2">
-          <PriorityIcon priority={priority} size={18} />
-        </span>
-      )}
-      <select
-        name={name}
-        aria-label="Priority"
-        value={priority}
-        onChange={(e) => setPriority(e.target.value as Priority)}
-        className={clsx("field", icon && "pl-9")}
-      >
-        {PRIORITIES.map((p) => (
-          <option key={p} value={p}>
-            {p[0]!.toUpperCase() + p.slice(1)}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+  return <Listbox name={name} aria-label="Priority" options={OPTIONS} defaultValue={defaultValue} className={className} />;
 }

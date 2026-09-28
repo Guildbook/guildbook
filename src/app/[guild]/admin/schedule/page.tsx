@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { PageHeader, Panel } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
+import { FACTION_OPTIONS } from "@/components/select-options";
 import { db } from "@/db";
 import type { raidScheduleSlots } from "@/db/schema";
-import { DAYS_OF_WEEK, FACTION_LABELS, FACTIONS } from "@/lib/game";
+import { DAYS_OF_WEEK } from "@/lib/game";
 import { timezoneAbbrev } from "@/lib/format";
 import { guildHref } from "@/lib/paths";
 import { deleteScheduleSlotAction, saveScheduleSlotAction } from "@/server/actions/admin";
@@ -17,13 +19,12 @@ function SlotFields({ slot, showFaction }: { slot?: typeof raidScheduleSlots.$in
     <div className={`grid gap-3 sm:items-end ${showFaction ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
       {slot && <input type="hidden" name="id" value={slot.id} />}
       <Field label="Day" name="dayOfWeek">
-        <select name="dayOfWeek" className="field" defaultValue={slot?.dayOfWeek ?? 2}>
-          {DAYS_OF_WEEK.map((d, i) => (
-            <option key={d} value={i}>
-              {d}
-            </option>
-          ))}
-        </select>
+        <Listbox
+          name="dayOfWeek"
+          aria-label="Day"
+          options={DAYS_OF_WEEK.map((d, i) => ({ value: String(i), label: d }))}
+          defaultValue={String(slot?.dayOfWeek ?? 2)}
+        />
       </Field>
       <Field label="Start" name="startTime">
         <input name="startTime" type="time" className="field" defaultValue={slot?.startTime ?? "20:00"} required />
@@ -36,14 +37,7 @@ function SlotFields({ slot, showFaction }: { slot?: typeof raidScheduleSlots.$in
       </Field>
       {showFaction && (
         <Field label="Faction" name="faction">
-          <select name="faction" className="field" defaultValue={slot?.faction ?? ""}>
-            <option value="">Both</option>
-            {FACTIONS.map((f) => (
-              <option key={f} value={f}>
-                {FACTION_LABELS[f]}
-              </option>
-            ))}
-          </select>
+          <Listbox name="faction" aria-label="Faction" options={[{ value: "", label: "Both" }, ...FACTION_OPTIONS]} defaultValue={slot?.faction ?? ""} />
         </Field>
       )}
     </div>

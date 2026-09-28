@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { chooseOption } from "./helpers";
 
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 /** Bare localhost is the local apex and guilds live on *.localhost, which Chromium resolves itself. */
@@ -43,14 +44,21 @@ test.describe("Guildbook platform", () => {
     await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toHaveAttribute("href", guildOrigin("osm"));
     await expect(page.getByTestId("directory").getByTestId("ruleset-badge").first()).toBeVisible();
     await expect(page.getByTestId("directory").getByTestId("region-badge").first()).toBeVisible();
-    await page.getByTestId("directory-filters").getByRole("link", { name: "Europe" }).click();
+    const filters = page.getByTestId("directory-filters");
+    await expect(filters.getByRole("combobox")).toHaveCount(3);
+    await chooseOption(filters.getByLabel("Region"), "eu");
     await expect(page).toHaveURL(`${APEX}/guilds?region=eu`);
     await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);
+    await expect(filters.getByLabel("Region")).toHaveText("Europe");
     await page.goto(`${APEX}/guilds`);
-    await page.getByTestId("directory-filters").getByRole("link", { name: "Horde" }).click();
+    await chooseOption(filters.getByLabel("Faction"), "horde");
     await expect(page).toHaveURL(`${APEX}/guilds?faction=horde`);
     await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);
+    // Choosing "All" again drops the filter from the shareable URL.
+    await chooseOption(filters.getByLabel("Faction"), "All");
+    await expect(page).toHaveURL(`${APEX}/guilds`);
     await page.goto(`${APEX}/guilds?region=us&faction=alliance&ruleset=normal`);
+    await expect(filters.getByLabel("Ruleset")).toHaveText("Normal");
     await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toBeVisible();
 
     await page.goto(`${guildOrigin("osm")}/charter`);

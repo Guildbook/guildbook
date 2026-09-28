@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
 import { RankInsignia } from "@/components/rank-insignia";
 import { CharacterLink, FactionBadge, PageHeader, Tag, VerifiedMark } from "@/components/ui";
+import { Listbox } from "@/components/listbox";
 import { db } from "@/db";
 import { canAssignRank } from "@/lib/authz/policy";
 import { TIER_LABELS, tierLevel } from "@/lib/authz/tiers";
@@ -83,13 +84,18 @@ export default async function MembersPage({ params }: PageProps<"/[guild]/admin/
                 <div className="flex flex-wrap items-center gap-2">
                   <ActionForm action={assignRankAction.bind(null, slug)} className="flex items-center gap-2">
                     <input type="hidden" name="membershipId" value={m.membershipId} />
-                    <select name="rankId" defaultValue={m.rankId} className="field min-h-9 w-40 py-1 text-sm" aria-label="Rank">
-                      {assignable.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
+                    <Listbox
+                      name="rankId"
+                      aria-label="Rank"
+                      options={assignable.map((r) => ({
+                        value: r.id,
+                        label: r.name,
+                        icon: <RankInsignia insignia={insigniaFor(r)} tier={r.tier} size={16} />,
+                      }))}
+                      defaultValue={m.rankId}
+                      size="sm"
+                      className="w-44"
+                    />
                     <SubmitButton variant="ghost" size="sm">
                       Set
                     </SubmitButton>
