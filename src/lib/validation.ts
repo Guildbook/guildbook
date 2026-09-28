@@ -11,8 +11,10 @@ import {
   MAX_PROFESSION_SKILL,
   PROFESSIONS,
   ROLES,
+  RULESETS,
   WOWF_LAUNCH_DATE,
 } from "@/lib/game";
+import { cleanGuildName } from "@/lib/guild-identity";
 
 const trimmed = (max: number) => z.string().trim().max(max);
 const required = (label: string, max: number) =>
@@ -166,12 +168,17 @@ const timezone = z.string().refine((tz) => {
   }
 }, "Unknown timezone");
 
+const guildName = (max: number) => required("Name", max).transform(cleanGuildName).pipe(z.string().min(1, "Name is required"));
+const guildFaction = z.enum(FACTIONS, "Choose your guild's faction");
+const guildRuleset = z.enum(RULESETS, "Choose your guild's ruleset");
+
 export const guildSettingsInput = z.object({
-  name: required("Name", 80),
+  name: guildName(80),
   motto: optionalText(120),
   description: trimmed(2000).default(""),
   timezone,
-  faction: optionalFaction,
+  faction: guildFaction,
+  ruleset: guildRuleset,
   discordInviteUrl,
   recruitmentOpen: checkbox,
   directoryListed: checkbox,
@@ -196,9 +203,10 @@ export const guildSlug = z
   });
 
 export const createGuildInput = z.object({
-  name: required("Name", 60),
+  name: guildName(60),
   slug: guildSlug,
-  faction: optionalFaction,
+  faction: guildFaction,
+  ruleset: guildRuleset,
   timezone,
   motto: optionalText(120),
   directoryListed: checkbox,

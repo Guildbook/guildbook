@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { STATIC_PREVIEW_VERSIONS } from "@/lib/brand-versions";
+import type { Faction, Ruleset } from "@/lib/game";
 import { tabardKey } from "@/lib/tabard/config";
 import { guildLook, isOrderLook, type LookColumns } from "@/lib/tabard/look";
 
@@ -17,7 +19,8 @@ export interface BrandAssets {
 
 const OG_ALT: Record<Brand, string> = {
   osm: "The Order of Saint Michael tabard, a crimson banner with a gold border and white cross, beside the words Order of Saint Michael, Quis ut Deus.",
-  guildbook: "The Guildbook mark, an open gold book with a crimson ribbon, beside the words Guildbook, guild sites for World of Warcraft: Forever.",
+  guildbook:
+    "The Guildbook mark, an open gold book with a crimson ribbon, beside the words Guildbook, guild sites for World of Warcraft: Forever, above three guild banners and guildbook.io.",
 };
 
 export function staticBrand(brand: Brand): BrandAssets {
@@ -52,8 +55,61 @@ export function brandIcons(b: Brand | BrandAssets): NonNullable<Metadata["icons"
   };
 }
 
-export function brandPreviewImage(b: Brand | BrandAssets) {
-  return { url: brandFile(b, "og.png"), width: 1200, height: 630, alt: assets(b).ogAlt };
+type StaticPreview = keyof typeof STATIC_PREVIEW_VERSIONS;
+
+const PREVIEW_ALT: Record<StaticPreview, string> = {
+  guildbook: OG_ALT.guildbook,
+  vigil: "The Vigil icon, a gold eye on a crimson tile, beside the words Vigil, the combat log companion, every pull reviewed on your guild's Guildbook.",
+};
+
+/** A static link preview on the apex, versioned by its content hash (written by `pnpm brand:assets`). */
+export function brandPreviewImage(preview: StaticPreview) {
+  return { url: `/brand/${preview}/og.png?v=${STATIC_PREVIEW_VERSIONS[preview]}`, width: 1200, height: 630, alt: PREVIEW_ALT[preview] };
+}
+
+/** Guild pages whose link previews carry the page title above the guild's name. */
+export const PREVIEW_PAGES = { charter: "Charter", lore: "Lore", roster: "Roster", progression: "Progression", apply: "Apply" } as const;
+export type PreviewPage = keyof typeof PREVIEW_PAGES;
+export const isPreviewPage = (p: string | null): p is PreviewPage => p !== null && Object.hasOwn(PREVIEW_PAGES, p);
+
+/** The guild columns a link preview draws. Ruleset and verification are optional. */
+export interface PreviewGuild extends LookColumns {
+  slug: string;
+  name: string;
+  motto: string | null;
+  faction: Faction | null;
+  ruleset?: Ruleset | null;
+  recruitmentOpen: boolean;
+  verifiedAt?: Date | null;
+}
+
+/** Bump when the preview's design changes, so cached images are refetched. */
+const PREVIEW_DESIGN = 2;
+
+/** 32-bit FNV-1a, base 36: short and stable, and works in any runtime. */
+function shortHash(s: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(36);
+}
+
+/** A version for a guild's link preview: changes whenever anything the image shows changes. */
+export function previewVersion(guild: PreviewGuild, host: string) {
+  const look = guildLook(guild);
+  const art = isOrderLook(guild) ? "order" : [tabardKey(look.tabard), look.base, JSON.stringify(look.overrides)].join("/");
+  return shortHash(
+    [PREVIEW_DESIGN, art, guild.name, guild.motto ?? "", guild.faction ?? "", guild.ruleset ?? "", guild.recruitmentOpen, Boolean(guild.verifiedAt), host].join("|"),
+  );
+}
+
+/** A guild's 1200 by 630 link preview at /api/brand/{slug}/og.png, drawn for its public `host`. */
+export function guildPreviewImage(guild: PreviewGuild, host: string, page?: PreviewPage) {
+  const query = new URLSearchParams({ v: previewVersion(guild, host) });
+  if (page) query.set("page", page);
+  const alt = isOrderLook(guild)
+    ? "The Order of Saint Michael tabard, a crimson banner with a gold border and white cross, beside the words Order of Saint Michael, Quis ut Deus."
+    : `The ${guild.name} tabard beside the guild's name${guild.motto ? ` and motto, ${guild.motto}` : ""}.`;
+  return { url: `/api/brand/${guild.slug}/og.png?${query}`, width: 1200, height: 630, alt };
 }
 
 export function brandManifestIcons(b: Brand | BrandAssets) {

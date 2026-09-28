@@ -66,7 +66,10 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
             &copy; {year} Guildbook. Fan-made guild sites, not affiliated with Blizzard Entertainment. World of Warcraft is a
             trademark of Blizzard Entertainment, Inc.
           </p>
-          <nav aria-label="Legal" className="flex gap-4 text-xs">
+          <nav aria-label="Legal" className="flex flex-wrap justify-center gap-4 text-xs">
+            <Link href="/vigil" className="text-bone/70 hover:text-gold">
+              Vigil companion
+            </Link>
             <Link href="/terms" className="text-bone/70 hover:text-gold">
               Terms of Service
             </Link>

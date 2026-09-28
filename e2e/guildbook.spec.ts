@@ -41,6 +41,12 @@ test.describe("Guildbook platform", () => {
     await page.goto(`${APEX}/guilds`);
     await expect(page.getByRole("heading", { name: "Guild directory" })).toBeVisible();
     await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toHaveAttribute("href", guildOrigin("osm"));
+    await expect(page.getByTestId("directory").getByTestId("ruleset-badge").first()).toBeVisible();
+    await page.getByTestId("directory-filters").getByRole("link", { name: "Horde" }).click();
+    await expect(page).toHaveURL(`${APEX}/guilds?faction=horde`);
+    await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);
+    await page.goto(`${APEX}/guilds?faction=alliance&ruleset=normal`);
+    await expect(page.getByTestId("directory").getByRole("link", { name: "Order of Saint Michael" })).toBeVisible();
 
     await page.goto(`${guildOrigin("osm")}/charter`);
     await expect(page.getByRole("heading", { name: /Charter/ }).first()).toBeVisible();
@@ -76,7 +82,9 @@ test.describe("Guildbook platform", () => {
     // The name suggests a slug until the slug is edited, but the slug was edited above.
     await slugInput.fill(slug);
     await expect(page.getByTestId("slug-status")).toHaveText("Available");
+    await expect(page.getByTestId("faction-choice").getByRole("radio")).toHaveCount(2);
     await page.getByLabel("Horde").check();
+    await page.getByLabel(/^PvP/).check();
     await page.getByLabel("Motto").fill("Hold the line");
     // Left unlisted so repeated runs don't fill the local directory.
     await expect(page.getByLabel(/public Guildbook directory/)).not.toBeChecked();
@@ -90,6 +98,7 @@ test.describe("Guildbook platform", () => {
     await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
     await expect(page.getByRole("main").getByText("Hold the line")).toBeVisible();
     await expect(page.getByText("Sancte Michael Archangele")).toHaveCount(0);
+    await expect(page.getByTestId("footer-ruleset")).toHaveText("PvP");
 
     await page.goto(`${guildOrigin(slug)}/charter`);
     await expect(page.getByRole("heading", { name: "Guild Charter" }).first()).toBeVisible();

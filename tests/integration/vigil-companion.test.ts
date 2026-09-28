@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { memberships, vigilCompanionDevices, vigilCompanionPairings, vigilReports } from "@/db/schema";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { guildDomains, memberships, vigilCompanionDevices, vigilCompanionPairings, vigilReports } from "@/db/schema";
 import type { Db } from "@/db/types";
 import type { Actor } from "@/lib/authz/policy";
 import { analyzeText } from "@/lib/vigil/analyze";
@@ -101,7 +101,9 @@ describe("companion pairing", () => {
     const ok = await handlePair(db, post("/api/vigil/companion/pair", { code, deviceName: "Laptop" }));
     expect(ok.status).toBe(201);
     expect(ok.headers.get("cache-control")).toBe("no-store");
-    expect(await ok.json()).toMatchObject({ token: expect.stringMatching(/^osmv_/), device: { name: "Laptop" } });
+    const body = await ok.json();
+    expect(body).toMatchObject({ token: expect.stringMatching(/^osmv_/), device: { name: "Laptop" }, siteUrl: `http://${guild.guild.slug}.localhost:3000` });
+    expect(body).not.toHaveProperty("guildId");
 
     const bad = await handlePair(db, post("/api/vigil/companion/pair", { code: "ZZZZ-ZZZZ" }));
     expect(bad.status).toBe(400);
@@ -111,6 +113,37 @@ describe("companion pairing", () => {
     for (let i = 0; i < 11; i++) statuses.push((await handlePair(db, post("/api/vigil/companion/pair", { code: "ZZZZ-ZZZZ" }, undefined, "192.0.2.9"))).status);
     expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
     expect(statuses[10]).toBe(429);
+  });
+});
+
+describe("companion site address", () => {
+  it("names the guild's verified custom domain when the companion pairs through the apex", async () => {
+    vi.stubEnv("ROOT_DOMAIN", "guildbook.io");
+    try {
+      const guild = await createGuild(db);
+      const member = await createMember(db, guild, "Squire");
+      const apex = (path: string, body: unknown, token?: string) =>
+        new Request(`https://guildbook.io${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `10.1.0.${++ipCounter}`, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(body),
+        });
+
+      const first = await createPairingCode(db, member);
+      const plain = await (await handlePair(db, apex("/api/vigil/companion/pair", { code: first.code }))).json();
+      expect(plain.siteUrl).toBe(`https://${guild.guild.slug}.guildbook.io`);
+
+      const domain = `${guild.guild.slug}.example`;
+      await db.insert(guildDomains).values({ guildId: guild.guild.id, domain, status: "verified", verificationToken: "t", verifiedAt: new Date() });
+      const second = await createPairingCode(db, member);
+      const custom = await (await handlePair(db, apex("/api/vigil/companion/pair", { code: second.code }))).json();
+      expect(custom.siteUrl).toBe(`https://${domain}`);
+
+      const res = await handleUpload(db, apex("/api/vigil/companion/reports", { report }, custom.token));
+      expect((await res.json()).url).toMatch(new RegExp(`^https://${domain.replace(".", "\\.")}/vigil/reports/`));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -158,7 +191,7 @@ describe("companion upload API", () => {
     const res = await upload(token);
     expect(res.status).toBe(201);
     const { id, url } = await res.json();
-    expect(url).toBe(`http://localhost:3000/vigil/reports/${id}`);
+    expect(url).toBe(`http://${guild.guild.slug}.localhost:3000/vigil/reports/${id}`);
     expect(await getVigilReport(db, member, id)).toMatchObject({ visibility: "private", fightLabel: "Rockhide Boar" });
     await expect(getVigilReport(db, officer, id)).rejects.toThrow("Report not found");
 

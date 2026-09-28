@@ -105,9 +105,9 @@ export async function setRankDefaultsAction(slug: string, _prev: Prev, fd: FormD
 
 export async function updateGuildSettingsAction(slug: string, _prev: Prev, fd: FormData): Promise<ActionResult> {
   return runAction(slug, async ({ viewer }) => {
-    await updateGuildSettings(db, viewer.actor, obj(fd));
+    const { unverified } = await updateGuildSettings(db, viewer.actor, obj(fd));
     refresh();
-    return "Guild settings saved.";
+    return unverified ? "Guild settings saved. The guild's identity changed, so it is no longer verified." : "Guild settings saved.";
   });
 }
 

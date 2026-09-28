@@ -4,6 +4,7 @@ import { GuildEmblem } from "@/components/guild-emblem";
 import { DropdownMenu } from "@/components/dropdown-menu";
 import { NavLink } from "@/components/nav-link";
 import { RankInsignia } from "@/components/rank-insignia";
+import { VerifiedSeal } from "@/components/verified-seal";
 import { can } from "@/lib/authz/policy";
 import { insigniaFor } from "@/lib/insignia";
 import { canViewLoot } from "@/lib/loot/access";
@@ -77,6 +78,7 @@ export function SiteHeader({ guild, viewer }: { guild: Guild; viewer: Viewer }) 
           <span className="font-display text-sm font-bold tracking-widest truncate text-gold uppercase sm:text-base">
             {guild.name}
           </span>
+          {guild.verifiedAt && <VerifiedSeal size={15} />}
         </Link>
 
         <nav className="hidden items-center gap-5 xl:flex" aria-label="Main">

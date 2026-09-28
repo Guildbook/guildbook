@@ -6,7 +6,7 @@ import * as schema from "@/db/schema";
 import type { Db } from "@/db/types";
 import type { Actor } from "@/lib/authz/policy";
 import { resolveTier } from "@/lib/authz/policy";
-import type { Faction } from "@/lib/game";
+import type { Faction, Ruleset } from "@/lib/game";
 import { createGuildWithDefaults } from "@/server/services/guilds";
 
 /** A fresh in-memory Postgres with every real migration applied (including triggers). */
@@ -20,9 +20,15 @@ export async function createTestDb() {
 let counter = 0;
 
 /** A guild with the Order preset, whose rank names (Grand Master, Knight, Postulant...) the tests use. */
-export async function createGuild(db: Db, opts: { slug?: string; faction?: Faction } = {}) {
+export async function createGuild(db: Db, opts: { slug?: string; name?: string; faction?: Faction; ruleset?: Ruleset } = {}) {
   const slug = opts.slug ?? `guild-${++counter}`;
-  return createGuildWithDefaults(db, { slug, name: `Guild ${slug}`, faction: opts.faction ?? null, preset: "order" });
+  return createGuildWithDefaults(db, {
+    slug,
+    name: opts.name ?? `Guild ${slug}`,
+    faction: opts.faction ?? "alliance",
+    ruleset: opts.ruleset ?? "normal",
+    preset: "order",
+  });
 }
 
 /** Creates a user with an active membership at `rankName` and returns an Actor for them. */

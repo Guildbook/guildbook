@@ -31,13 +31,3 @@ export function FactionIcon({
     />
   );
 }
-
-/** Both crests side by side, for guilds open to either faction. */
-export function BothFactionsIcon({ size = 20, className }: { size?: number; className?: string }) {
-  return (
-    <span className={clsx("inline-flex shrink-0 items-center -space-x-1", className)} aria-hidden>
-      <FactionIcon faction="alliance" size={size} decorative />
-      <FactionIcon faction="horde" size={size} decorative />
-    </span>
-  );
-}

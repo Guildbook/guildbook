@@ -64,6 +64,46 @@ export const FEATURE_ICONS = {
       <path d="M22 12h-2.5a2 2 0 0 0-1.9 1.5l-2.4 8.3a.25.25 0 0 1-.5 0L9.3 2.2a.25.25 0 0 0-.5 0L6.4 10.5A2 2 0 0 1 4.5 12H2" />
     </Icon>
   ),
+  upload: (
+    <Icon>
+      <path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />
+      <path d="M12 12v9" />
+      <path d="m16 16-4-4-4 4" />
+    </Icon>
+  ),
+  callouts: (
+    <Icon>
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </Icon>
+  ),
+  reports: (
+    <Icon>
+      <path d="M3 3v18h18" />
+      <path d="M18 17V9" />
+      <path d="M13 17V5" />
+      <path d="M8 17v-3" />
+    </Icon>
+  ),
+  window: (
+    <Icon>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M2 8h20" />
+      <rect x="12" y="11" width="7" height="6" rx="1" />
+    </Icon>
+  ),
+  privacy: (
+    <Icon>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+      <path d="m9 12 2 2 4-4" />
+    </Icon>
+  ),
+  source: (
+    <Icon>
+      <path d="m16 18 6-6-6-6" />
+      <path d="m8 6-6 6 6 6" />
+    </Icon>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type FeatureIcon = keyof typeof FEATURE_ICONS;

@@ -1,5 +1,3 @@
-# The Electron companion is built and shipped separately; the site deploy never needs it.
-companion/
 # Local env files and CLI links hold credentials; Vercel's own environment variables are used instead.
 .env*
 !.env.example

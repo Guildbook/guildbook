@@ -1,11 +1,12 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditLog, contentPages, guilds, memberships, ranks, users } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { resolveTier } from "@/lib/authz/policy";
 import { DomainError } from "@/server/errors";
 import { checkSlugAvailability, createGuildForUser, listDirectoryGuilds, listUserGuilds } from "@/server/services/platform";
-import { createGuild, createTestDb } from "../support/db";
+import { updateGuildSettings } from "@/server/services/ranks";
+import { createGuild, createMember, createTestDb } from "../support/db";
 
 let db: Db;
 let close: () => Promise<void>;
@@ -19,7 +20,7 @@ async function newUser() {
 }
 
 function form(slug: string, extra: Record<string, string> = {}) {
-  return { name: `Guild ${slug}`, slug, faction: "", timezone: "America/New_York", motto: "", ...extra };
+  return { name: `Guild ${slug}`, slug, faction: "alliance", ruleset: "normal", timezone: "America/New_York", motto: "", ...extra };
 }
 
 beforeAll(async () => {
@@ -108,5 +109,64 @@ describe("createGuildForUser", () => {
     expect(slugs).toContain("listed-one");
     expect(slugs).not.toContain("hidden-one");
     expect(directory.find((g) => g.slug === "listed-one")?.members).toBe(1);
+  });
+});
+
+describe("one faction and one ruleset per guild", () => {
+  it("requires a faction and a ruleset at creation", async () => {
+    const user = await newUser();
+    await expect(createGuildForUser(db, user.id, form("no-faction", { faction: "" }), limits)).rejects.toThrow(/faction/);
+    await expect(createGuildForUser(db, user.id, form("both-factions", { faction: "both" }), limits)).rejects.toThrow(/faction/);
+    await expect(createGuildForUser(db, user.id, form("no-ruleset", { ruleset: "" }), limits)).rejects.toThrow(/ruleset/);
+    const { guild } = await createGuildForUser(db, user.id, form("pvp-guild", { faction: "horde", ruleset: "pvp" }), limits);
+    expect(guild).toMatchObject({ faction: "horde", ruleset: "pvp" });
+  });
+});
+
+describe("guild identity uniqueness", () => {
+  it("allows one guild per name, faction and ruleset, case-insensitively", async () => {
+    const user = await newUser();
+    await createGuildForUser(db, user.id, form("iron-oath", { name: "Iron Oath" }), limits);
+
+    const other = await newUser();
+    await expect(createGuildForUser(db, other.id, form("iron-oath-2", { name: "iron  OATH " }), limits)).rejects.toThrow(
+      "A guild called Iron Oath (Alliance, Normal) is already on Guildbook",
+    );
+    expect(await db.select().from(guilds).where(eq(guilds.slug, "iron-oath-2"))).toHaveLength(0);
+
+    const horde = await createGuildForUser(db, other.id, form("iron-oath-horde", { name: "Iron Oath", faction: "horde" }), limits);
+    expect(horde.guild.name).toBe("Iron Oath");
+    const pvp = await createGuildForUser(db, other.id, form("iron-oath-pvp", { name: "Iron Oath", ruleset: "pvp" }), limits);
+    expect(pvp.guild.name).toBe("Iron Oath");
+  });
+
+  it("refuses a rename or identity change onto another guild's identity", async () => {
+    const taken = await createGuild(db, { name: "Crimson Vow", faction: "horde", ruleset: "rp" });
+    const mover = await createGuild(db, { name: "Crimson Vow", faction: "alliance", ruleset: "rp" });
+    const gm = await createMember(db, mover, "Grand Master");
+    const settings = { name: "Crimson Vow", timezone: "America/New_York", faction: "horde", ruleset: "rp" };
+    await expect(updateGuildSettings(db, gm, settings)).rejects.toThrow(/Crimson Vow \(Horde, Roleplaying\) is already on Guildbook/);
+    const [row] = await db.select().from(guilds).where(eq(guilds.id, mover.guild.id));
+    expect(row).toMatchObject({ faction: "alliance", ruleset: "rp" });
+
+    await expect(updateGuildSettings(db, gm, { ...settings, name: "CRIMSON VOW", faction: "alliance" })).resolves.toMatchObject({ unverified: false });
+    expect(taken.guild.id).not.toBe(mover.guild.id);
+  });
+});
+
+describe("directory", () => {
+  it("filters by faction and ruleset and lists verified guilds first", async () => {
+    const big = await createGuild(db, { slug: "dir-big", faction: "horde", ruleset: "pvp" });
+    const small = await createGuild(db, { slug: "dir-small", faction: "horde", ruleset: "pvp" });
+    await db.update(guilds).set({ directoryListed: true }).where(inArray(guilds.id, [big.guild.id, small.guild.id]));
+    await createMember(db, big, "Knight");
+    await createMember(db, big, "Knight");
+    await db.update(guilds).set({ verifiedAt: new Date(), verifiedVia: "battlenet" }).where(eq(guilds.id, small.guild.id));
+
+    const pvpHorde = await listDirectoryGuilds(db, { faction: "horde", ruleset: "pvp" });
+    expect(pvpHorde.map((g) => g.slug)).toEqual(["dir-small", "dir-big"]);
+    expect(pvpHorde[0]!.verifiedAt).toBeInstanceOf(Date);
+    expect((await listDirectoryGuilds(db, { ruleset: "rp" })).map((g) => g.slug)).not.toContain("dir-big");
+    expect((await listDirectoryGuilds(db, { faction: "alliance" })).map((g) => g.slug)).not.toContain("dir-small");
   });
 });

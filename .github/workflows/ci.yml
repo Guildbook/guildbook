@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  check:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # PageProps and LayoutProps are generated route types; .next/ and next-env.d.ts are gitignored.
+      - name: Generate route types
+        run: pnpm exec next typegen
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+
+  test:
+    name: Unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Integration tests run against in-memory PGlite with the real migrations; no database service needed.
+      - name: Vitest
+        run: pnpm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: guildbook
+          POSTGRES_PASSWORD: guildbook
+          POSTGRES_DB: guildbook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guildbook"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # Placeholders only: nothing here is a real credential.
+    env:
+      DATABASE_URL: postgres://guildbook:guildbook@localhost:5432/guildbook
+      AUTH_SECRET: ci-placeholder-auth-secret-not-used-anywhere
+      AUTH_DISCORD_ID: ci-placeholder
+      AUTH_DISCORD_SECRET: ci-placeholder
+      AUTH_TRUST_HOST: "true"
+      DEFAULT_GUILD_SLUG: osm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: pnpm db:migrate
+      - name: Build
+        run: pnpm build

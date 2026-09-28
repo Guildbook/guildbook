@@ -2,28 +2,21 @@ import type { Metadata } from "next";
 import { GuildThemeStyle } from "@/components/guild-theme";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { db } from "@/db";
-import { brandIcons, brandPreviewImage, guildBrand } from "@/lib/brand";
+import { brandIcons, guildBrand } from "@/lib/brand";
 import { getGuild, getViewer } from "@/server/context";
-import { getRequestHost, guildOrigin } from "@/server/hosts";
-import { primaryCustomDomain } from "@/server/services/domains";
+import { guildDescription, guildPublicOrigin, guildSocialMetadata } from "@/server/guild-metadata";
 
 /** Link previews and canonical URLs use the guild's own host: its verified custom domain, else its subdomain. */
 export async function generateMetadata({ params }: LayoutProps<"/[guild]">): Promise<Metadata> {
   const { guild: slug } = await params;
-  const guild = await getGuild(slug);
-  const [current, customDomain] = await Promise.all([getRequestHost(), primaryCustomDomain(db, guild.id)]);
-  const brand = guildBrand(guild);
-  const description = guild.description || `${guild.name}, a World of Warcraft: Forever guild on Guildbook.`;
-  const image = brandPreviewImage(brand);
+  const [guild, origin, social] = await Promise.all([getGuild(slug), guildPublicOrigin(slug), guildSocialMetadata(slug)]);
   return {
-    metadataBase: new URL(guildOrigin(guild.slug, current, customDomain)),
+    metadataBase: new URL(origin),
     title: { default: guild.name, template: `%s | ${guild.name}` },
-    description,
+    description: guildDescription(guild),
     applicationName: guild.name,
-    icons: brandIcons(brand),
-    openGraph: { type: "website", siteName: guild.name, title: guild.name, description, url: "/", images: [image] },
-    twitter: { card: "summary_large_image", title: guild.name, description, images: [image] },
+    icons: brandIcons(guildBrand(guild)),
+    ...social,
   };
 }
 

@@ -18,7 +18,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
-import { CLASSES, FACTIONS, PROFESSIONS, ROLES } from "@/lib/game";
+import { CLASSES, FACTIONS, PROFESSIONS, ROLES, RULESETS } from "@/lib/game";
 import { RANK_TIERS } from "@/lib/authz/tiers";
 import { THEME_BASES, type ThemeOverrides } from "@/lib/tabard/theme";
 import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/constants";
@@ -33,6 +33,7 @@ export const rankTierEnum = pgEnum("rank_tier", RANK_TIERS);
 export const wowClassEnum = pgEnum("wow_class", CLASSES);
 export const raidRoleEnum = pgEnum("raid_role", ROLES);
 export const factionEnum = pgEnum("faction", FACTIONS);
+export const rulesetEnum = pgEnum("ruleset", RULESETS);
 export const professionEnum = pgEnum("profession", PROFESSIONS);
 export const membershipStatusEnum = pgEnum("membership_status", ["applicant", "active", "former"]);
 export const applicationStatusEnum = pgEnum("application_status", [
@@ -155,6 +156,19 @@ export interface BattlenetScan {
   excluded: BattlenetExcludedGroup[];
 }
 
+export interface VerificationResult {
+  verified: boolean;
+  reason: string | null;
+  message: string;
+  /** False when Blizzard couldn't give an answer; those failures never count toward the grace period. */
+  conclusive: boolean;
+  characterName?: string | null;
+  /** The in-game guild the checked character is in, when it could be read. */
+  inGameGuildName?: string | null;
+  /** Set when the character is Guild Master of a same-faction, same-ruleset guild with another name. */
+  claim?: { name: string; holderName: string | null; holderVerified: boolean } | null;
+}
+
 export interface BattlenetCharacterSnapshot {
   id: string;
   name: string;
@@ -166,6 +180,8 @@ export interface BattlenetCharacterSnapshot {
   race: string;
   faction: (typeof FACTIONS)[number];
   guildName: string | null;
+  /** The realm's WoW: Forever ruleset when Blizzard's realm data says; absent in snapshots taken before rulesets. */
+  ruleset?: (typeof RULESETS)[number] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +197,28 @@ export const guilds = pgTable("guilds", {
   description: text("description").notNull().default(""),
   realm: text("realm"),
   timezone: text("timezone").notNull().default("America/New_York"),
-  /** Null means the guild spans both factions. */
-  faction: factionEnum("faction"),
+  /** Classic-era guilds are faction-locked: one faction per guild. */
+  faction: factionEnum("faction").notNull(),
+  /** WoW: Forever ruleset (it has no realms). With name and faction, the guild's identity (see guilds_identity_key). */
+  ruleset: rulesetEnum("ruleset").notNull(),
+  /**
+   * Verified: an admin-tier member's Battle.net character is Guild Master (rank 0) of the in-game guild with this
+   * name, faction and ruleset. The daily cron re-checks it; the badge goes after VERIFICATION_GRACE_DAYS of failures.
+   */
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  verifiedUserId: text("verified_user_id").references(() => users.id, { onDelete: "set null" }),
+  verifiedCharacterId: text("verified_character_id"),
+  verifiedCharacterName: text("verified_character_name"),
+  verifiedRealmSlug: text("verified_realm_slug"),
+  /** How verification was proven; only "battlenet" so far. */
+  verifiedVia: text("verified_via"),
+  verificationCheckedAt: timestamp("verification_checked_at", { withTimezone: true }),
+  /** First failed re-check of a verified guild, cleared by a successful one. */
+  verificationFailingSince: timestamp("verification_failing_since", { withTimezone: true }),
+  /** The last check's outcome, shown in the admin verification panel (reason, message, in-game guild, claim). */
+  verificationResult: jsonb("verification_result").$type<VerificationResult>(),
+  /** A notice for the guild's admins (faction backfill, a name or subdomain claimed by a verified guild), until dismissed. */
+  adminNotice: text("admin_notice"),
   recruitmentOpen: boolean("recruitment_open").notNull().default(true),
   applicantRankId: uuid("applicant_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
   acceptRankId: uuid("accept_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
@@ -207,6 +243,7 @@ export const guilds = pgTable("guilds", {
   createdAt: createdAt(),
 }, (t) => [
   index("guilds_created_by_idx").on(t.createdByUserId, t.createdAt),
+  uniqueIndex("guilds_identity_key").on(sql`lower(${t.name})`, t.faction, t.ruleset),
   check("guilds_theme_order_only", sql`${t.themeBase} <> 'order' or ${t.preset} = 'order'`),
   check("guilds_tabard_background_range", sql`${t.tabardBackground} between 0 and 50`),
   check("guilds_tabard_border_range", sql`${t.tabardBorder} between 0 and 16`),

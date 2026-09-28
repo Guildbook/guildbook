@@ -1,5 +1,5 @@
 import type { BattlenetCharacterSnapshot, BattlenetExcludedGroup, BattlenetNamespaceScan, BattlenetScan } from "@/db/schema";
-import type { Faction, WowClass } from "@/lib/game";
+import { type Faction, RULESET_BY_REALM_TYPE, type Ruleset, type WowClass } from "@/lib/game";
 import { isForeverCharacter, knownGameVersion } from "@/lib/wow-versions";
 import { apiHost, type BlizzardConfig, oauthHost } from "./config";
 
@@ -24,6 +24,17 @@ export interface CharacterProfile {
   wowClass: WowClass | null;
   faction: Faction | null;
   guildName: string | null;
+  /** The character's in-game guild, from the profile summary's `guild` object. */
+  guild: ProfileGuild | null;
+  realmSlug: string | null;
+}
+
+export interface ProfileGuild {
+  name: string;
+  realmSlug: string;
+  /** Path segment for `/data/wow/guild/{realmSlug}/{nameSlug}`: from `guild.key.href` when present. */
+  nameSlug: string;
+  faction: Faction | null;
 }
 
 export interface RosterMember {
@@ -32,7 +43,17 @@ export interface RosterMember {
   realmSlug: string;
   level: number;
   wowClass: WowClass | null;
+  /** Guild rank index; 0 is the Guild Master. */
+  rank: number | null;
 }
+
+export type ProfileLookup = { status: "ok"; profile: CharacterProfile } | { status: "missing" } | { status: "error" };
+export type RosterLookup =
+  | { status: "ok"; members: RosterMember[] }
+  | { status: "not_found" }
+  | { status: "forbidden" }
+  | { status: "error" };
+export type RealmRulesetLookup = { status: "ok"; ruleset: Ruleset | null; realmType: string | null } | { status: "error" };
 
 export interface BlizzardItem {
   itemId: number;
@@ -225,6 +246,28 @@ export function describeScanForLog(scan: BattlenetScan, foreverCount: number): s
   return `${parts.join(" ")} forever=${foreverCount} excluded=${scan.excluded.reduce((sum, g) => sum + g.count, 0)}`;
 }
 
+/** Blizzard's guild name slug: lowercase, spaces to hyphens (used only when the response has no `key.href`). */
+export function guildNameSlug(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function parseProfileGuild(value: unknown, fallbackRealm: string | null): ProfileGuild | null {
+  const g = obj(value);
+  const name = localized(g?.name);
+  if (!g || !name) return null;
+  const href = obj(g.key)?.href;
+  const fromHref = typeof href === "string" ? href.match(/\/data\/wow\/guild\/([^/?#]+)\/([^/?#]+)/) : null;
+  const realm = obj(g.realm);
+  const realmSlug = typeof realm?.slug === "string" ? realm.slug : fromHref ? decodeURIComponent(fromHref[1]!) : fallbackRealm;
+  if (!realmSlug) return null;
+  return {
+    name,
+    realmSlug,
+    nameSlug: fromHref ? decodeURIComponent(fromHref[2]!) : guildNameSlug(name),
+    faction: factionOf(g.faction, null),
+  };
+}
+
 export function parseCharacterProfile(json: unknown): CharacterProfile | null {
   const c = obj(json);
   const id = num(c?.id);
@@ -232,6 +275,8 @@ export function parseCharacterProfile(json: unknown): CharacterProfile | null {
   const level = num(c?.level);
   if (!c || id == null || !name || level == null) return null;
   const classId = num(obj(c.character_class)?.id);
+  const realmSlug = obj(c.realm)?.slug;
+  const guild = parseProfileGuild(c.guild, typeof realmSlug === "string" ? realmSlug : null);
   return {
     id: String(id),
     name,
@@ -239,8 +284,20 @@ export function parseCharacterProfile(json: unknown): CharacterProfile | null {
     level,
     wowClass: classId != null ? (CLASS_BY_ID[classId] ?? null) : null,
     faction: factionOf(c.faction, num(obj(c.race)?.id)),
-    guildName: localized(obj(c.guild)?.name),
+    guildName: guild?.name ?? localized(obj(c.guild)?.name),
+    guild,
+    realmSlug: typeof realmSlug === "string" ? realmSlug : null,
   };
+}
+
+/** A Game Data realm's type (`NORMAL`, `PVP`, `RP`...) as a WoW: Forever ruleset; null when it doesn't map to one. */
+export function parseRealmType(json: unknown): { ruleset: Ruleset | null; realmType: string | null } {
+  const raw = obj(json);
+  const type = obj(raw?.type)?.type;
+  const category = localized(raw?.category);
+  const realmType = typeof type === "string" ? type.toUpperCase() : null;
+  if (category && /hardcore/i.test(category)) return { ruleset: "hardcore", realmType };
+  return { ruleset: realmType ? (RULESET_BY_REALM_TYPE[realmType] ?? null) : null, realmType };
 }
 
 export function parseGuildRoster(json: unknown): RosterMember[] {
@@ -255,7 +312,14 @@ export function parseGuildRoster(json: unknown): RosterMember[] {
     const level = num(c?.level);
     if (!c || id == null || !name || typeof realmSlug !== "string" || level == null) continue;
     const classId = num(obj(c.playable_class)?.id);
-    out.push({ id: String(id), name, realmSlug, level, wowClass: classId != null ? (CLASS_BY_ID[classId] ?? null) : null });
+    out.push({
+      id: String(id),
+      name,
+      realmSlug,
+      level,
+      wowClass: classId != null ? (CLASS_BY_ID[classId] ?? null) : null,
+      rank: num(obj(m)?.rank),
+    });
   }
   return out;
 }
@@ -273,6 +337,7 @@ const MAX_PROFILE_ENRICH = 20;
  */
 export class BlizzardClient {
   private clientToken: { token: string; expiresAt: number } | null = null;
+  private readonly realmRulesets = new Map<string, { ruleset: Ruleset | null; realmType: string | null }>();
 
   constructor(
     readonly config: BlizzardConfig,
@@ -428,6 +493,16 @@ export class BlizzardClient {
         }
       }),
     );
+    // Which ruleset each realm is, so a guild only offers characters from its own ruleset. Best effort only.
+    const realms = [...new Set(characters.map((c) => c.realmSlug.toLowerCase()))].slice(0, MAX_PROFILE_ENRICH);
+    const rulesets = new Map<string, Ruleset | null>();
+    await Promise.all(
+      realms.map(async (slug) => {
+        const lookup = await this.getRealmRuleset(slug).catch(() => null);
+        rulesets.set(slug, lookup?.status === "ok" ? lookup.ruleset : null);
+      }),
+    );
+    for (const [i, c] of characters.entries()) characters[i] = { ...c, ruleset: rulesets.get(c.realmSlug.toLowerCase()) ?? null };
     return { status: "ok", characters, scan };
   }
 
@@ -437,6 +512,63 @@ export class BlizzardClient {
     const res = await this.get(characterPath(realmSlug, name), token);
     if (!res.ok) return null;
     return parseCharacterProfile(await res.json().catch(() => null));
+  }
+
+  /** Like `getCharacterProfile` with an app token, but tells "gone or private" (404/403) apart from a failed request. */
+  async lookupCharacterProfile(realmSlug: string, name: string): Promise<ProfileLookup> {
+    try {
+      const res = await this.get(characterPath(realmSlug, name), await this.appToken());
+      if (res.status === 404 || res.status === 403) return { status: "missing" };
+      if (!res.ok) return { status: "error" };
+      const profile = parseCharacterProfile(await res.json().catch(() => null));
+      return profile ? { status: "ok", profile } : { status: "error" };
+    } catch {
+      return { status: "error" };
+    }
+  }
+
+  /**
+   * The ruleset of a realm: `BATTLENET_REALM_RULESETS` first, then the Game Data realm's type
+   * (`/data/wow/realm/{realmSlug}` in the dynamic namespace). Cached for the life of the client.
+   */
+  async getRealmRuleset(realmSlug: string): Promise<RealmRulesetLookup> {
+    const slug = realmSlug.toLowerCase();
+    const configured = this.config.realmRulesets[slug];
+    if (configured) return { status: "ok", ruleset: configured, realmType: null };
+    const cached = this.realmRulesets.get(slug);
+    if (cached) return { status: "ok", ...cached };
+    try {
+      const res = await this.get(`/data/wow/realm/${encodeURIComponent(slug)}`, await this.appToken(), this.config.dynamicNamespace);
+      if (res.status === 404) {
+        const unknown = { ruleset: null, realmType: null };
+        this.realmRulesets.set(slug, unknown);
+        return { status: "ok", ...unknown };
+      }
+      if (!res.ok) return { status: "error" };
+      const parsed = parseRealmType(await res.json().catch(() => null));
+      this.realmRulesets.set(slug, parsed);
+      return { status: "ok", ...parsed };
+    } catch {
+      return { status: "error" };
+    }
+  }
+
+  /** The in-game guild roster with ranks. Blizzard answers 403 for some existing Classic guilds, so that is its own status. */
+  async lookupGuildRoster(realmSlug: string, nameSlug: string): Promise<RosterLookup> {
+    try {
+      const res = await this.get(
+        `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}/roster`,
+        await this.appToken(),
+      );
+      if (res.status === 404) return { status: "not_found" };
+      if (res.status === 401 || res.status === 403) return { status: "forbidden" };
+      if (!res.ok) return { status: "error" };
+      const json = await res.json().catch(() => null);
+      if (!obj(json)) return { status: "error" };
+      return { status: "ok", members: parseGuildRoster(json) };
+    } catch {
+      return { status: "error" };
+    }
   }
 
   /** An item's name, quality, level and icon from the Game Data API, in the configured static namespace. */

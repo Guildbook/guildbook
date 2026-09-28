@@ -5,8 +5,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/platform/terms": ["./src/content/legal/**/*"],
     "/platform/privacy": ["./src/content/legal/**/*"],
-    // Guild link previews are drawn with the bundled Cinzel fonts.
-    "/api/brand/[slug]/[file]": ["./scripts/fonts/*.ttf"],
+    // Guild link previews are drawn with the bundled Cinzel fonts, the faction crests and the Order's crest.
+    "/api/brand/[slug]/[file]": ["./scripts/fonts/*.ttf", "./public/icons/factions/*.png", "./public/brand/osm/icon-512.png"],
   },
 };
 

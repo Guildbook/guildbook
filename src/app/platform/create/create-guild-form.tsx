@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { FactionChoice } from "@/components/faction-choice";
+import { RulesetChoice } from "@/components/ruleset";
 import { SLUG_MAX, slugProblem, suggestSlug } from "@/lib/hosts";
 import { checkSlugAction, createGuildAction } from "@/server/actions/platform";
 
@@ -39,6 +40,7 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [faction, setFaction] = useState("");
+  const [ruleset, setRuleset] = useState("");
   const [timezone, setTimezone] = useState("America/New_York");
   const [timezones, setTimezones] = useState(TIMEZONES);
   const [motto, setMotto] = useState("");
@@ -130,7 +132,16 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
       <fieldset>
         <legend className="field-label">Faction</legend>
         <FactionChoice value={faction} onChange={setFaction} />
-        <p className="mt-1 text-xs text-muted">One faction hides faction choices across your site. Pick both if you raid on each side.</p>
+        <p className="mt-1 text-xs text-muted">Guilds are faction-locked in game, so a guild site has one faction too.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend className="field-label">Ruleset</legend>
+        <RulesetChoice value={ruleset} onChange={setRuleset} />
+        <p className="mt-1 text-xs text-muted">
+          WoW: Forever has no realms: your guild lives on one ruleset. Name, faction and ruleset together identify your guild, and
+          must match the in-game guild to verify it.
+        </p>
       </fieldset>
 
       <Field label="Timezone" name="timezone" hint="Raid times are shown in this timezone.">

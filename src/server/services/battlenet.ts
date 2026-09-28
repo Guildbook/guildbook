@@ -12,7 +12,6 @@ import { decryptToken, encryptToken } from "@/server/blizzard/crypto";
 import { charactersForGuild } from "@/server/blizzard/filter";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
-import { getGuildFaction } from "@/server/faction";
 
 export interface BattlenetDeps {
   client: BlizzardClient;
@@ -177,8 +176,9 @@ export async function getEligibleCharacters(db: Db, actor: Actor, eligibility: E
   assertCan(actor, "battlenet.link");
   const link = await getBattlenetLink(db, actor.userId);
   if (!link) return { link: null, characters: [] as BattlenetCharacterSnapshot[] };
-  const faction = await getGuildFaction(db, actor.guildId);
-  return { link, characters: charactersForGuild(link.characters, { faction, realmSlugs: eligibility.realmSlugs }) };
+  const [guild] = await db.select({ faction: guilds.faction, ruleset: guilds.ruleset }).from(guilds).where(eq(guilds.id, actor.guildId));
+  if (!guild) throw new NotFoundError("Guild");
+  return { link, characters: charactersForGuild(link.characters, { ...guild, realmSlugs: eligibility.realmSlugs }) };
 }
 
 /**

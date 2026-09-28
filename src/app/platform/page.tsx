@@ -13,13 +13,18 @@ import { exampleSites, loadShowcase, SitePreview } from "./site-preview";
 /** The guild shown in the home page preview when it is listed in the directory. */
 const SHOWCASE_SLUG = "osm";
 
-const features = (domain: string): { icon: FeatureIcon; title: string; body: string }[] => [
+const features = (domain: string): { icon: FeatureIcon; title: string; body: string; link?: { href: string; label: string } }[] => [
   { icon: "address", title: "Your own address", body: `Every guild gets a subdomain like yourguild.${domain}, and can bring its own domain later.` },
   { icon: "applications", title: "Applications", body: "Applicants sign in with Discord and can verify their character through Battle.net." },
   { icon: "roster", title: "Roster and ranks", body: "Your rank ladder, mains and alts, professions and who can do what in the admin." },
   { icon: "raids", title: "Raid nights", body: "Schedule, recruitment needs and progression, shown in your guild's timezone." },
   { icon: "charter", title: "Charter and lore", body: "Markdown pages for your rules, loot policy and story, with a full revision history." },
-  { icon: "vigil", title: "Vigil", body: "Members upload combat logs for a private review of each pull: rotation, uptimes and cooldowns." },
+  {
+    icon: "vigil",
+    title: "Vigil",
+    body: "Members upload combat logs for a private review of each pull: rotation, uptimes and cooldowns.",
+    link: { href: "/vigil", label: "Get the desktop companion" },
+  },
 ];
 
 const steps = [
@@ -108,6 +113,11 @@ export default async function PlatformHome() {
                 <h3 className="font-display text-base font-semibold text-gold">{f.title}</h3>
               </div>
               <p className="mt-3 text-sm leading-relaxed text-muted">{f.body}</p>
+              {f.link && (
+                <Link href={f.link.href} className="link mt-2 inline-block text-sm">
+                  {f.link.label}
+                </Link>
+              )}
             </li>
           ))}
         </ul>

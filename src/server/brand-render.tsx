@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import { detailForWidth, TabardArt } from "@/components/tabard-crest";
+import { FACTION_LABELS, type Faction, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { fromOklch, shiftLightness, toOklch } from "@/lib/tabard/color";
 import type { TabardConfig } from "@/lib/tabard/config";
 import type { GuildLook } from "@/lib/tabard/look";
 import { computeTheme, type SelectableBase } from "@/lib/tabard/theme";
@@ -93,11 +95,17 @@ export async function faviconIco(look: GuildLook) {
   return ico(images);
 }
 
-let fonts: Promise<{ name: string; data: Buffer; weight: 400 | 700; style: "normal" }[]> | null = null;
+type FontFace = { name: string; data: Buffer; weight: 400 | 700; style: "normal" };
+let fonts: Promise<FontFace[]> | null = null;
 function cinzel() {
+  const faces = [
+    ["Cinzel", "Cinzel-Regular.ttf", 400],
+    ["Cinzel", "Cinzel-Bold.ttf", 700],
+    ["Cinzel Decorative", "CinzelDecorative-Bold.ttf", 700],
+  ] as const;
   fonts ??= Promise.all(
-    ([["Cinzel-Regular.ttf", 400], ["Cinzel-Bold.ttf", 700]] as const).map(async ([file, weight]) => ({
-      name: "Cinzel",
+    faces.map(async ([name, file, weight]) => ({
+      name,
       data: await readFile(path.join(process.cwd(), "scripts/fonts", file)),
       weight,
       style: "normal" as const,
@@ -106,34 +114,264 @@ function cinzel() {
   return fonts;
 }
 
-/** The 1200 by 630 link preview: the crest beside the guild's name and motto, in the guild's theme colours. */
-export async function linkPreview(look: GuildLook, guild: { name: string; motto: string | null }) {
-  const c = palette(look);
-  const crestPx = 460;
-  const size = guild.name.length > 22 ? 56 : guild.name.length > 14 ? 68 : 80;
+const pngUri = (data: Buffer) => `data:image/png;base64,${data.toString("base64")}`;
+const publicFiles = new Map<string, Promise<string>>();
+/** A file under public/ as a data URI, read once (they ship with the route; see next.config.ts). */
+function publicPng(rel: string) {
+  let uri = publicFiles.get(rel);
+  if (!uri) {
+    uri = readFile(path.join(process.cwd(), "public", rel)).then(pngUri);
+    publicFiles.set(rel, uri);
+  }
+  return uri;
+}
+
+/** What a guild's link preview says besides its name. Ruleset and verification are optional. */
+export interface PreviewFacts {
+  name: string;
+  motto: string | null;
+  faction: Faction | null;
+  ruleset?: Ruleset | null;
+  recruiting: boolean;
+  verified: boolean;
+  /** The guild's public host, e.g. `osm.guildbook.io` or its custom domain. */
+  host: string;
+  /** A page title shown as a small eyebrow above the name (Charter, Roster...). */
+  eyebrow?: string | null;
+}
+
+interface PreviewPalette {
+  ink: string;
+  glow: string;
+  trim: string;
+  trimTop: string;
+  accent: string;
+  bone: string;
+  muted: string;
+}
+
+/** The Order's crimson and gold (globals.css and its static brand set). */
+const ORDER_PREVIEW: PreviewPalette = {
+  ink: "#0b0908",
+  glow: "#7a1020",
+  trim: "#c9a44c",
+  trimTop: "#f2dc98",
+  accent: "#c8283f",
+  bone: "#ece4d4",
+  muted: "#a39888",
+};
+
+/**
+ * Link previews are always a dark card: chat apps and feeds show them on both light and dark backgrounds, and a
+ * crest glowing on ink reads at thumbnail size where cream parchment washes out. Parchment guilds take the dark
+ * tome surfaces (their tabard colours re-clamped for contrast there); modern guilds keep their slate.
+ */
+function previewPalette(look: GuildLook): PreviewPalette {
+  if (look.base === "order") return ORDER_PREVIEW;
+  const theme = computeTheme(look.tabard, look.base === "modern" ? "modern" : "tome", look.overrides);
+  const v = theme.vars;
+  const glow = toOklch(v["--theme-glow"]!);
+  const trim = v["--color-gold"]!;
+  return {
+    ink: v["--color-ink"]!,
+    glow: fromOklch({ ...glow, l: Math.min(0.5, Math.max(0.34, glow.l)) }),
+    trim,
+    trimTop: shiftLightness(trim, 0.12),
+    accent: v["--color-crimson-bright"]!,
+    bone: v["--color-bone"]!,
+    muted: v["--color-muted"]!,
+  };
+}
+
+/** Faint gold grain over the ink, like the X header's. */
+const GRAIN = dataUri(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><filter id="g" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="7" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0.79 0 0 0 0 0.64 0 0 0 0 0.3 0 0 0 0.05 0"/></filter><rect width="1200" height="630" filter="url(#g)"/></svg>`,
+);
+
+const seal = (fill: string, check: string) =>
+  dataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="44" height="44"><path d="M8 .8l1.6 1.3 2-.4.8 1.9 1.9.8-.4 2L15.2 8l-1.3 1.6.4 2-1.9.8-.8 1.9-2-.4L8 15.2l-1.6-1.3-2 .4-.8-1.9-1.9-.8.4-2L.8 8l1.3-1.6-.4-2 1.9-.8.8-1.9 2 .4Z" fill="${fill}"/><path d="m5.2 8.2 1.9 1.9 3.8-4" fill="none" stroke="${check}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  );
+
+/** Cinzel Decorative Bold advance widths at 100px (measured with resvg), to fit names to the column. */
+const ADVANCE: Record<string, number> = {
+  ...Object.fromEntries([..."0123456789"].map((ch, i) => [ch, [70, 39, 62, 57, 63, 56, 64, 55, 61, 64][i]!])),
+  ...Object.fromEntries([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map((ch, i) => [ch, [71, 69, 81, 85, 67, 66, 84, 85, 46, 39, 76, 42, 98, 85, 90, 69, 90, 73, 62, 72, 81, 73, 97, 74, 68, 65][i]!])),
+  ...Object.fromEntries([..."abcdefghijklmnopqrstuvwxyz"].map((ch, i) => [ch, [72, 67, 77, 81, 63, 60, 80, 86, 39, 39, 76, 61, 96, 87, 85, 65, 86, 73, 59, 67, 83, 74, 98, 74, 71, 67][i]!])),
+  "'": 21,
+  "-": 39,
+  ",": 22,
+  ".": 21,
+  " ": 26,
+};
+const NAME_COLUMN = 556;
+
+/** How many lines `name` wraps to at `size` in the name column (Infinity if one word overflows). */
+function lineCount(name: string, size: number) {
+  const width = (s: string) => ([...s].reduce((sum, ch) => sum + (ADVANCE[ch] ?? 75), 0) * size) / 100;
+  const max = NAME_COLUMN * 0.96;
+  let lines = 1;
+  let line = "";
+  for (const word of name.split(/\s+/).filter(Boolean)) {
+    if (width(word) > max) return Infinity;
+    const next = line ? `${line} ${word}` : word;
+    if (width(next) <= max) line = next;
+    else {
+      lines++;
+      line = word;
+    }
+  }
+  return lines;
+}
+
+/** The largest title size that keeps the name on one line, else on two; very long names clamp at the smallest. */
+function nameSize(name: string) {
+  for (const size of [84, 76, 68]) if (lineCount(name, size) === 1) return size;
+  for (const size of [68, 62, 56, 50, 44]) if (lineCount(name, size) <= 2) return size;
+  return 40;
+}
+
+function Diamond({ color, size }: { color: string; size: number }) {
+  return <div style={{ width: size, height: size, backgroundColor: color, transform: "rotate(45deg)" }} />;
+}
+
+function Pill({ c, children }: { c: PreviewPalette; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        height: 40,
+        padding: "0 14px",
+        borderRadius: 20,
+        border: `1px solid ${c.trim}59`,
+        backgroundColor: `${c.ink}cc`,
+        fontSize: 15,
+        fontWeight: 700,
+        letterSpacing: 1.4,
+        textTransform: "uppercase",
+        color: c.bone,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const FACTION_EDGE: Record<Faction, string> = { alliance: "#3b5ca8", horde: "#a83b3b" };
+
+/**
+ * The 1200 by 630 link preview: the crest large on the left in a glow of the tabard's colour, the guild's name,
+ * motto and a row of facts on the right, and its host at the foot. The Order keeps its locked crest and colours.
+ */
+export async function linkPreview(look: GuildLook, guild: PreviewFacts) {
+  const c = previewPalette(look);
+  const order = look.base === "order";
+  const crestPx = 440;
+  const crest = order ? await publicPng("brand/osm/icon-512.png") : dataUri(tabardSvg(look.tabard, crestPx));
+  const faction = guild.faction ? await publicPng(`icons/factions/${guild.faction}.png`) : null;
+  const size = nameSize(guild.name);
+  const column = { position: "absolute", left: 580, width: NAME_COLUMN } as const;
   return png(
     <div
       style={{
         display: "flex",
+        position: "relative",
         width: 1200,
         height: 630,
         backgroundColor: c.ink,
-        backgroundImage: `radial-gradient(circle at 26% 50%, ${c.glow}66 0%, ${c.glow}00 45%)`,
+        backgroundImage: [
+          "radial-gradient(ellipse at 50% 50%, #00000000 55%, #0000008c 100%)",
+          `radial-gradient(circle at 26% 50%, ${c.glow}b3 0%, ${c.glow}4d 22%, ${c.glow}00 46%)`,
+          `radial-gradient(ellipse at 80% 0%, ${c.trim}24 0%, ${c.trim}00 55%)`,
+        ].join(", "),
         fontFamily: "Cinzel",
-        padding: 24,
+        color: c.bone,
       }}
     >
-      <div style={{ display: "flex", flex: 1, border: `2px solid ${c.line}`, borderRadius: 6, alignItems: "center", padding: "0 56px", gap: 56 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
-        <img src={dataUri(tabardSvg(look.tabard, crestPx))} width={crestPx * ASPECT} height={crestPx} />
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, alignItems: "center", textAlign: "center" }}>
-          <div style={{ fontSize: size, fontWeight: 700, color: c.gold, lineHeight: 1.1 }}>{guild.name}</div>
-          <div style={{ width: 360, height: 2, marginTop: 28, marginBottom: 28, backgroundImage: `linear-gradient(90deg, ${c.gold}00, ${c.gold}, ${c.gold}00)` }} />
-          {guild.motto && <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 8, color: c.accent, textTransform: "uppercase", marginBottom: 24 }}>{guild.motto}</div>}
-          <div style={{ fontSize: 26, color: c.bone, opacity: 0.9 }}>A World of Warcraft: Forever guild</div>
-          <div style={{ fontSize: 22, color: c.goldDim, marginTop: 10 }}>on Guildbook</div>
+      {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+      <img src={GRAIN} width={1200} height={630} style={{ position: "absolute", left: 0, top: 0 }} />
+      <div style={{ position: "absolute", left: 24, top: 24, right: 24, bottom: 24, borderRadius: 6, border: `1px solid ${c.trim}40` }} />
+      {order ? (
+        // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+        <img src={crest} width={crestPx} height={crestPx} style={{ position: "absolute", left: 310 - crestPx / 2, top: (630 - crestPx) / 2 }} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+        <img src={crest} width={crestPx * ASPECT} height={crestPx} style={{ position: "absolute", left: 310 - (crestPx * ASPECT) / 2, top: (630 - crestPx) / 2 }} />
+      )}
+      <div style={{ ...column, top: 60, bottom: 110, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {guild.eyebrow && (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18, fontSize: 19, fontWeight: 700, letterSpacing: 7, color: c.trim, textTransform: "uppercase" }}>
+            <Diamond color={c.trim} size={7} />
+            {guild.eyebrow}
+          </div>
+        )}
+        <div
+          style={{
+            display: "block",
+            fontFamily: "Cinzel Decorative",
+            fontSize: size,
+            fontWeight: 700,
+            lineHeight: 1.14,
+            lineClamp: 2,
+            color: "transparent",
+            backgroundImage: `linear-gradient(180deg, ${c.trimTop}, ${c.trim})`,
+            backgroundClip: "text",
+          }}
+        >
+          {guild.name}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 26, marginBottom: guild.motto ? 24 : 34 }}>
+          <Diamond color={c.trim} size={8} />
+          <div style={{ width: 300, height: 1.5, backgroundImage: `linear-gradient(90deg, ${c.trim}, ${c.trim}00)` }} />
+        </div>
+        {guild.motto && (
+          <div
+            style={{
+              display: "block",
+              fontSize: 24,
+              fontWeight: 700,
+              letterSpacing: 7,
+              textTransform: "uppercase",
+              color: c.accent,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              marginBottom: 34,
+            }}
+          >
+            {guild.motto}
+          </div>
+        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {(guild.faction || guild.ruleset) && (
+            <Pill c={c}>
+              {guild.faction && faction && (
+                // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+                <img src={faction} width={22} height={22} style={{ borderRadius: 4, border: `1px solid ${FACTION_EDGE[guild.faction]}` }} />
+              )}
+              {guild.faction && <div style={{ display: "flex" }}>{FACTION_LABELS[guild.faction]}</div>}
+              {guild.faction && guild.ruleset && <Diamond color={`${c.trim}b3`} size={5} />}
+              {guild.ruleset && <div style={{ display: "flex" }}>{RULESET_INFO[guild.ruleset].label}</div>}
+            </Pill>
+          )}
+          {guild.recruiting && (
+            <Pill c={c}>
+              <div style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: "#5fd08a", boxShadow: "0 0 8px #5fd08a" }} />
+              Recruiting
+            </Pill>
+          )}
+          {guild.verified && (
+            <Pill c={c}>
+              {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+              <img src={seal(c.trim, c.ink)} width={22} height={22} />
+              Verified
+            </Pill>
+          )}
         </div>
       </div>
+      <div style={{ ...column, bottom: 54, display: "flex", fontSize: 18, letterSpacing: 3, color: c.muted }}>{guild.host}</div>
     </div>,
     1200,
     630,

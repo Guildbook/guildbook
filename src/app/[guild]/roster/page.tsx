@@ -9,9 +9,12 @@ import { CLASS_INFO, CLASSES, FACTION_LABELS, FACTIONS, type Faction } from "@/l
 import { insigniaFor } from "@/lib/insignia";
 import { guildHref } from "@/lib/paths";
 import { getGuild } from "@/server/context";
+import { guildSocialMetadata } from "@/server/guild-metadata";
 import { getRoster } from "@/server/services/characters";
 
-export const metadata: Metadata = { title: "Roster" };
+export async function generateMetadata({ params }: PageProps<"/[guild]/roster">): Promise<Metadata> {
+  return { title: "Roster", ...(await guildSocialMetadata((await params).guild, "roster")) };
+}
 
 export default async function RosterPage({ params, searchParams }: PageProps<"/[guild]/roster">) {
   const { guild: slug } = await params;

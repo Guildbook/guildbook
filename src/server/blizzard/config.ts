@@ -1,3 +1,5 @@
+import { RULESETS, type Ruleset } from "@/lib/game";
+
 export const REGIONS = ["us", "eu", "kr", "tw", "cn"] as const;
 export type Region = (typeof REGIONS)[number];
 
@@ -25,6 +27,13 @@ export interface BlizzardConfig {
    * characters, even realms otherwise known as Classic ones. Empty means any realm that isn't a known Classic one.
    */
   realmSlugs: string[];
+  /**
+   * Game Data namespace for realm lookups (realm type to ruleset). Defaults to the profile namespace's `dynamic-`
+   * twin, e.g. `profile-classic1x-us` to `dynamic-classic1x-us`.
+   */
+  dynamicNamespace: string;
+  /** Explicit realm slug to ruleset map (BATTLENET_REALM_RULESETS), checked before Blizzard's realm type. */
+  realmRulesets: Record<string, Ruleset>;
   /** In-game guild used for one-request roster syncs, when both are set. */
   guildRealmSlug: string | null;
   guildSlug: string | null;
@@ -50,6 +59,16 @@ function list(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/** `realm-a:pvp,realm-b:normal` to a map; unknown rulesets are ignored. */
+function realmRulesetMap(value: string | undefined): Record<string, Ruleset> {
+  const out: Record<string, Ruleset> = {};
+  for (const pair of list(value)) {
+    const [slug, ruleset] = pair.split(":").map((s) => s.trim());
+    if (slug && ruleset && (RULESETS as readonly string[]).includes(ruleset)) out[slug] = ruleset as Ruleset;
+  }
+  return out;
+}
+
 export function blizzardConfigFromEnv(env: Record<string, string | undefined> = process.env): BlizzardConfig {
   const rawRegion = (env.BATTLENET_REGION ?? "us").trim().toLowerCase();
   const region = (REGIONS as readonly string[]).includes(rawRegion) ? (rawRegion as Region) : "us";
@@ -68,6 +87,11 @@ export function blizzardConfigFromEnv(env: Record<string, string | undefined> = 
     staticNamespace: (env.BATTLENET_STATIC_NAMESPACE?.trim() || DEFAULT_STATIC_NAMESPACE).replaceAll("{region}", region),
     locale: env.BATTLENET_LOCALE?.trim() || "en_US",
     realmSlugs: list(env.BATTLENET_REALMS),
+    dynamicNamespace: (env.BATTLENET_DYNAMIC_NAMESPACE?.trim() || profileNamespace.replace(/^profile-/, "dynamic-")).replaceAll(
+      "{region}",
+      region,
+    ),
+    realmRulesets: realmRulesetMap(env.BATTLENET_REALM_RULESETS),
     guildRealmSlug: env.BATTLENET_GUILD_REALM?.trim().toLowerCase() || null,
     guildSlug: env.BATTLENET_GUILD_SLUG?.trim().toLowerCase() || null,
     clientId: env.BATTLENET_CLIENT_ID?.trim() || null,

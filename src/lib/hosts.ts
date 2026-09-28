@@ -31,6 +31,8 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "guild", "guildbook", "guilds", "handoff", "help", "images", "img", "imap", "legal", "localhost", "login",
   "logout", "media", "mx", "new", "ns1", "ns2", "platform", "pop", "preview", "privacy", "root", "security",
   "settings", "signin", "signout", "signup", "smtp", "staging", "support", "terms", "test", "webmail",
+  // Blizzard and game names nobody should hold as a guild.
+  "blizzard", "battlenet", "warcraft", "worldofwarcraft", "wow", "wowforever", "official", "moderator", "gamemaster",
   // Guild page paths, which would be ambiguous in the path-prefixed dev mode.
   "addons", "apply", "charter", "denied", "lore", "members", "progression", "roster", "vigil",
 ]);

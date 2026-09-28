@@ -1,5 +1,0 @@
-# The companion is its own pnpm project, not a member of the site's workspace: the site (and Vercel) never
-# install Electron. This file makes companion/ the workspace root when pnpm runs here.
-onlyBuiltDependencies:
-  - electron
-  - esbuild

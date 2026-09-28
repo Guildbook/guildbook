@@ -3,12 +3,14 @@ import type { ReactNode } from "react";
 import { FactionIcon } from "@/components/faction-icon";
 import { GitHubIcon } from "@/components/github-icon";
 import { GuildEmblem } from "@/components/guild-emblem";
+import { RulesetIcon } from "@/components/ruleset";
+import { VerifiedSeal } from "@/components/verified-seal";
 import { XIcon } from "@/components/x-icon";
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
 import { SOURCE_URL, X_URL } from "@/lib/brand";
 import { formatClock, timezoneAbbrev } from "@/lib/format";
-import { DAYS_OF_WEEK, FACTION_LABELS } from "@/lib/game";
+import { DAYS_OF_WEEK, FACTION_LABELS, RULESET_INFO } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { type Guild, offersApply, type Viewer } from "@/server/context";
 import { getRequestHost } from "@/server/hosts";
@@ -46,6 +48,7 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
             <GuildEmblem guild={guild} className="h-14 w-11 shrink-0" />
             <span className="font-display text-base font-bold tracking-widest text-gold uppercase">{guild.name}</span>
           </Link>
+          {guild.verifiedAt && <VerifiedSeal label size={14} className="mt-2" />}
           {motto && <p className="mt-3 font-display text-xs tracking-[0.3em] text-crimson-bright uppercase">{motto}</p>}
           <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-muted">{guild.description}</p>
         </section>
@@ -81,15 +84,20 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
             </ul>
           )}
           <dl className="mt-4 space-y-1 text-xs text-muted">
-            {guild.faction && (
-              <div>
-                <dt className="inline text-gold-dim">Faction </dt>
-                <dd className="inline-flex items-center gap-1 align-middle">
-                  <FactionIcon faction={guild.faction} size={14} decorative />
-                  {FACTION_LABELS[guild.faction]}
-                </dd>
-              </div>
-            )}
+            <div>
+              <dt className="inline text-gold-dim">Faction </dt>
+              <dd className="inline-flex items-center gap-1 align-middle">
+                <FactionIcon faction={guild.faction} size={14} decorative />
+                {FACTION_LABELS[guild.faction]}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-gold-dim">Ruleset </dt>
+              <dd className="inline-flex items-center gap-1 align-middle" data-testid="footer-ruleset">
+                <RulesetIcon ruleset={guild.ruleset} size={13} className="text-gold-dim" />
+                {RULESET_INFO[guild.ruleset].label}
+              </dd>
+            </div>
           </dl>
         </section>
 

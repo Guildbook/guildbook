@@ -31,8 +31,6 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // WoW addons (Lua) ship as-is from here.
     "addons/**",
-    // The Electron companion is its own project with its own ESLint config (same middot rule).
-    "companion/**",
     // Playwright output and scratch configs.
     "test-results/**",
     "playwright-report/**",

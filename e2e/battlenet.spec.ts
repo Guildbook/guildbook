@@ -124,3 +124,21 @@ test("a member imports verified characters and an officer syncs their levels", a
   await expect(brenna.getByText("Level 44 Shadow")).toBeVisible();
   await expect(brenna.getByText(/Synced from Battle.net/)).toBeVisible();
 });
+
+test("the Guild Master verifies the guild through Battle.net", async ({ page }) => {
+  // In mock mode Aldric is Guild Master (rank 0) of "Order of Saint Michael" on a Normal realm, Alliance.
+  await signIn(page, "seed-tor", "Tor", "/members/characters");
+  await page.getByRole("link", { name: "Link Battle.net" }).click();
+  await expect(page.getByTestId("battlenet-account")).toContainText(/Pilgrim#\d{4}/);
+
+  await page.goto("/admin/guild");
+  const panel = page.getByTestId("verify-guild");
+  await expect(panel.getByText(/Guild Master \(rank 0\) of an in-game guild named exactly/)).toBeVisible();
+  await panel.getByRole("button", { name: "Check verification" }).click();
+  await expect(panel.getByRole("status").filter({ hasText: "Your guild is verified." })).toBeVisible();
+  await expect(panel.getByText(/Aldric is the in-game Guild Master/)).toBeVisible();
+  await expect(page.getByRole("banner").getByTestId("verified-seal")).toBeVisible();
+
+  await page.goto("/admin/audit");
+  await expect(page.getByText("guild.verify").first()).toBeVisible();
+});

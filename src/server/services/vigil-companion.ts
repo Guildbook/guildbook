@@ -121,7 +121,7 @@ export async function exchangePairingCode(db: Db, raw: unknown) {
       })
       .returning({ id: vigilCompanionDevices.id, name: vigilCompanionDevices.name });
     const [guild] = await tx.select({ slug: guilds.slug, name: guilds.name }).from(guilds).where(eq(guilds.id, pairing.guildId));
-    return { token, device: device!, guild: guild! };
+    return { token, device: device!, guild: guild!, guildId: pairing.guildId };
   });
 }
 

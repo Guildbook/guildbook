@@ -4,7 +4,9 @@ import { AuthorizationError } from "@/lib/authz/policy";
 import { guildHref } from "@/lib/paths";
 import { MAX_REPORT_BYTES } from "@/lib/vigil/report";
 import { DomainError, NotFoundError } from "@/server/errors";
+import { guildOrigin, hostFromRequest } from "@/server/hosts";
 import { clientIp, createRateLimiter } from "@/server/rate-limit";
+import { primaryCustomDomain } from "@/server/services/domains";
 import {
   authenticateDevice,
   companionProfile,
@@ -50,12 +52,22 @@ async function readJson(request: Request, maxBytes: number): Promise<unknown> {
 
 class PayloadTooLarge extends Error {}
 
+/**
+ * The guild's canonical site as seen from this request: its verified custom domain, else its subdomain (local
+ * hosts stay local). The companion calls the apex for everything and uses this for links, so it can trust a
+ * custom domain it could not verify itself.
+ */
+async function companionSiteUrl(db: Db, guild: { id: string; slug: string }, request: Request): Promise<string> {
+  const [current, customDomain] = await Promise.all([hostFromRequest(request), primaryCustomDomain(db, guild.id)]);
+  return guildOrigin(guild.slug, current, customDomain);
+}
+
 export async function handlePair(db: Db, request: Request): Promise<Response> {
   const limit = pairLimiter(clientIp(request));
   if (!limit.ok) return json({ error: "Too many pairing attempts. Wait a minute." }, 429, { "Retry-After": String(limit.retryAfterS) });
   try {
-    const result = await exchangePairingCode(db, await readJson(request, 4096));
-    return json(result, 201);
+    const { guildId, ...result } = await exchangePairingCode(db, await readJson(request, 4096));
+    return json({ ...result, siteUrl: await companionSiteUrl(db, { id: guildId, slug: result.guild.slug }, request) }, 201);
   } catch (err) {
     if (err instanceof PayloadTooLarge) return json({ error: "Request too large." }, 413);
     return errorResponse(err);
@@ -65,19 +77,10 @@ export async function handlePair(db: Db, request: Request): Promise<Response> {
 export async function handleProfile(db: Db, request: Request): Promise<Response> {
   try {
     const auth = await authenticateDevice(db, bearer(request));
-    return json(await companionProfile(db, auth));
+    return json({ ...(await companionProfile(db, auth)), siteUrl: await companionSiteUrl(db, auth.guild, request) });
   } catch (err) {
     return errorResponse(err);
   }
-}
-
-/** The origin the companion called. In dev, Next's `request.url` is the server's own localhost whatever the host. */
-function requestOrigin(request: Request): string {
-  const url = new URL(request.url);
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!host) return url.origin;
-  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  return `${proto ? `${proto}:` : url.protocol}//${host}`;
 }
 
 export async function handleUpload(db: Db, request: Request): Promise<Response> {
@@ -89,7 +92,7 @@ export async function handleUpload(db: Db, request: Request): Promise<Response> 
       return json({ error: "Uploading too fast. The companion will retry." }, 429, { "Retry-After": String(quota.retryAfterS) });
     }
     const { id } = await uploadCompanionReport(db, auth, body);
-    const url = new URL(guildHref(auth.guild.slug, `/vigil/reports/${id}`), requestOrigin(request)).toString();
+    const url = new URL(guildHref(auth.guild.slug, `/vigil/reports/${id}`), await companionSiteUrl(db, auth.guild, request)).toString();
     return json({ id, url }, 201);
   } catch (err) {
     if (err instanceof PayloadTooLarge) return json({ error: "This fight's report is too large to upload." }, 413);

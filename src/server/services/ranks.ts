@@ -3,10 +3,13 @@ import type { Db } from "@/db/types";
 import { characters, guilds, memberships, ranks, users } from "@/db/schema";
 import { type Actor, assertCan, AuthorizationError, canAssignRank, resolveTier } from "@/lib/authz/policy";
 import { fullName, MAX_IN_GAME_RANKS } from "@/lib/game";
+import { sameGuildName } from "@/lib/guild-identity";
 import { assignRankInput, guildSettingsInput, rankDefaultsInput, rankInput } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
+import { CLEARED_VERIFICATION } from "@/server/services/guild-verification";
+import { findGuildByIdentity, IDENTITY_CONSTRAINT, identityTakenMessage } from "@/server/services/platform";
 
 export async function listRanks(db: Db, guildId: string) {
   return db.select().from(ranks).where(eq(ranks.guildId, guildId)).orderBy(asc(ranks.sortOrder));
@@ -262,29 +265,58 @@ export async function removeMember(db: Db, actor: Actor, membershipId: string) {
 
 // --- Guild settings --------------------------------------------------------
 
+/**
+ * Saves guild settings. Name, faction and ruleset are the guild's identity: they must be unique together, and
+ * changing any of them on a verified guild removes the verification (the in-game guild no longer matches).
+ */
 export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "guild.settings");
   const input = guildSettingsInput.parse(raw);
-  await db.transaction(async (tx) => {
-    const [before] = await tx.select().from(guilds).where(eq(guilds.id, actor.guildId));
-    await tx.update(guilds).set(input).where(eq(guilds.id, actor.guildId));
-    await recordAudit(tx, actor, {
-      action: "guild.settings",
-      targetType: "guild",
-      targetId: actor.guildId,
-      before: before && {
-        name: before.name,
-        motto: before.motto,
-        timezone: before.timezone,
-        faction: before.faction,
-        discordInviteUrl: before.discordInviteUrl,
-        recruitmentOpen: before.recruitmentOpen,
-        directoryListed: before.directoryListed,
-        lootPublic: before.lootPublic,
-      },
-      after: input,
+  const holder = await findGuildByIdentity(db, input, actor.guildId);
+  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }));
+  try {
+    return await db.transaction(async (tx) => {
+      const [before] = await tx.select().from(guilds).where(eq(guilds.id, actor.guildId));
+      if (!before) throw new NotFoundError("Guild");
+      const identityChanged =
+        !sameGuildName(before.name, input.name) || before.faction !== input.faction || before.ruleset !== input.ruleset;
+      const unverify = Boolean(before.verifiedAt) && identityChanged;
+      await tx
+        .update(guilds)
+        .set({ ...input, ...(unverify ? CLEARED_VERIFICATION : {}) })
+        .where(eq(guilds.id, actor.guildId));
+      await recordAudit(tx, actor, {
+        action: "guild.settings",
+        targetType: "guild",
+        targetId: actor.guildId,
+        before: {
+          name: before.name,
+          motto: before.motto,
+          timezone: before.timezone,
+          faction: before.faction,
+          ruleset: before.ruleset,
+          discordInviteUrl: before.discordInviteUrl,
+          recruitmentOpen: before.recruitmentOpen,
+          directoryListed: before.directoryListed,
+          lootPublic: before.lootPublic,
+        },
+        after: input,
+      });
+      if (unverify) {
+        await recordAudit(tx, actor, {
+          action: "guild.verification.remove",
+          targetType: "guild",
+          targetId: actor.guildId,
+          before: { name: before.name, faction: before.faction, ruleset: before.ruleset, character: before.verifiedCharacterName },
+          after: { reason: "identity_changed" },
+        });
+      }
+      return { unverified: unverify };
     });
-  });
+  } catch (err) {
+    if (isUniqueViolation(err, IDENTITY_CONSTRAINT)) throw new DomainError(identityTakenMessage(input));
+    throw err;
+  }
 }
 
 export async function setRecruitmentOpen(db: Db, actor: Actor, open: boolean) {

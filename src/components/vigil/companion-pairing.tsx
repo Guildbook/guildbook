@@ -30,10 +30,8 @@ export function CompanionPairing({ slug }: { slug: string }) {
       setResult(await createCompanionPairingCodeAction(slug));
     });
 
-  const link =
-    code && typeof window !== "undefined"
-      ? `${COMPANION_SCHEME}://pair?code=${encodeURIComponent(code)}&site=${encodeURIComponent(window.location.origin)}`
-      : null;
+  // The code alone names the guild: the companion redeems it on the apex, which answers with this site's address.
+  const link = code ? `${COMPANION_SCHEME}://pair?code=${encodeURIComponent(code)}` : null;
 
   return (
     <div className="space-y-4">

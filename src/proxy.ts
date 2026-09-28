@@ -5,7 +5,7 @@ import { lookupCustomDomainSlug } from "@/server/domain-lookup";
 
 /** Platform pages live under app/platform and are served on the apex (and the path-prefixed dev fallback). */
 const PLATFORM_PREFIX = "/platform";
-const PLATFORM_PATHS = ["/create", "/guilds", "/login", "/terms", "/privacy", "/account"];
+const PLATFORM_PATHS = ["/create", "/guilds", "/login", "/terms", "/privacy", "/account", "/vigil"];
 /** Platform-wide pages that guild hosts redirect to on the apex. */
 const APEX_ONLY_PATHS = ["/terms", "/privacy", "/account"];
 const PATH_PREFIXED = process.env.NEXT_PUBLIC_MULTI_GUILD === "true";

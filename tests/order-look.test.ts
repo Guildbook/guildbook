@@ -7,7 +7,8 @@ import { Crest, CrestArt } from "@/components/crest";
 import { GuildEmblem } from "@/components/guild-emblem";
 import { GuildThemeStyle } from "@/components/guild-theme";
 import { TabardArt, TabardCrest } from "@/components/tabard-crest";
-import { brandFile, brandIcons, guildBrand } from "@/lib/brand";
+import { brandFile, brandIcons, brandPreviewImage, guildBrand, guildPreviewImage, type PreviewGuild, previewVersion } from "@/lib/brand";
+import { STATIC_PREVIEW_VERSIONS } from "@/lib/brand-versions";
 import { DEFAULT_TABARD, ORDER_TABARD, tabardKey, type TabardConfig } from "@/lib/tabard/config";
 import type { TabardDetail } from "@/lib/tabard/emblem-types";
 import { EMBLEMS } from "@/lib/tabard/emblems";
@@ -69,8 +70,31 @@ describe("the Order of Saint Michael's look is unchanged", () => {
     const sha = (f: string) => createHash("sha1").update(readFileSync(`public/brand/${f}`)).digest("hex");
     expect(sha("osm/favicon.ico")).toBe("27edbcb2c6f8eeaf35756cd2c196f75cf5d065aa");
     expect(sha("osm/icon-512.png")).toBe("e72b4a23a62c6d5de1860eb2cd285782937beb2c");
-    expect(sha("osm/og.png")).toBe("f057d6af983bd9fd5eaff3a8cc79abcd043f9d1a");
     expect(sha("discord-icon.png")).toBe("d30845c46d06e265a696b4ebc841e8e7da2f81c2");
+  });
+
+  it("versions the platform's static link previews by the image's content hash", () => {
+    for (const preview of ["guildbook", "vigil"] as const) {
+      const hash = createHash("sha1").update(readFileSync(`public/brand/${preview}/og.png`)).digest("hex");
+      expect(hash.startsWith(STATIC_PREVIEW_VERSIONS[preview])).toBe(true);
+      expect(brandPreviewImage(preview)).toMatchObject({ url: `/brand/${preview}/og.png?v=${STATIC_PREVIEW_VERSIONS[preview]}`, width: 1200, height: 630 });
+    }
+  });
+
+  it("draws its link preview per request with its locked crest, versioned by what the card shows", () => {
+    const guild: PreviewGuild = { ...orderGuild, motto: "Quis ut Deus", faction: "alliance", recruitmentOpen: true };
+    const image = guildPreviewImage(guild, "orderofsaintmichael.com", "charter");
+    expect(image).toMatchObject({ width: 1200, height: 630 });
+    expect(image.url).toBe(`/api/brand/osm/og.png?v=${previewVersion(guild, "orderofsaintmichael.com")}&page=charter`);
+    expect(image.alt).toContain("crimson banner");
+    const v = (g: PreviewGuild, host = "orderofsaintmichael.com") => previewVersion(g, host);
+    expect(v({ ...guild, recruitmentOpen: false })).not.toBe(v(guild));
+    expect(v({ ...guild, name: "Order of Saint Michael the Archangel" })).not.toBe(v(guild));
+    expect(v(guild, "osm.guildbook.io")).not.toBe(v(guild));
+    expect(v({ ...guild, verifiedAt: new Date() })).not.toBe(v(guild));
+    expect(v({ ...guild, ruleset: "pvp" })).not.toBe(v(guild));
+    // The Order's stored tabard doesn't drive its art, so it doesn't version its preview.
+    expect(v({ ...guild, tabardEmblem: "lion" })).toBe(v(guild));
   });
 });
 
@@ -81,6 +105,15 @@ describe("generic tabard crests", () => {
     const brand = guildBrand(standardGuild);
     expect(brandFile(brand, "icon-192.png")).toBe(`/api/brand/silver-dawn/icon-192.png?v=${tabardKey(ORDER_TABARD)}`);
     expect(renderToStaticMarkup(createElement(GuildEmblem, { guild: standardGuild }))).toContain('aria-label="Silver Dawn tabard"');
+  });
+
+  it("version their link previews by tabard, base style and colour overrides", () => {
+    const guild: PreviewGuild = { ...standardGuild, motto: null, faction: "horde", recruitmentOpen: true };
+    const v = (g: PreviewGuild) => previewVersion(g, "silver-dawn.guildbook.io");
+    expect(v({ ...guild, tabardEmblem: "lion" })).not.toBe(v(guild));
+    expect(v({ ...guild, themeBase: "parchment" })).not.toBe(v(guild));
+    expect(v({ ...guild, themeOverrides: { trim: "#ffffff" } })).not.toBe(v(guild));
+    expect(guildPreviewImage(guild, "silver-dawn.guildbook.io").url).toBe(`/api/brand/silver-dawn/og.png?v=${v(guild)}`);
   });
 
   it("render deterministically with no ids, gradients or long decimals", () => {

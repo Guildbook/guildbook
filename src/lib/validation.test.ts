@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bossKillInput, guildSettingsInput } from "@/lib/validation";
 
-const base = { name: "Order", timezone: "America/New_York" };
+const base = { name: "Order", timezone: "America/New_York", faction: "alliance", ruleset: "normal" };
 
 describe("guild settings Discord invite", () => {
   it.each(["https://discord.gg/abc123", "https://discord.com/invite/abc123", "https://www.discord.com/invite/abc"])(

@@ -11,10 +11,12 @@ interface MockRealm {
   id: number;
   slug: string;
   name: string;
+  /** Game Data realm `type.type`, which maps to a WoW: Forever ruleset. */
+  type: string;
 }
 
-const CRUSADERS_REACH: MockRealm = { id: 6101, slug: "crusaders-reach", name: "Crusader's Reach" };
-const SILVERPINE: MockRealm = { id: 6102, slug: "silverpine", name: "Silverpine" };
+const CRUSADERS_REACH: MockRealm = { id: 6101, slug: "crusaders-reach", name: "Crusader's Reach", type: "NORMAL" };
+const SILVERPINE: MockRealm = { id: 6102, slug: "silverpine", name: "Silverpine", type: "NORMAL" };
 
 interface MockCharacter {
   name: string;
@@ -28,10 +30,12 @@ interface MockCharacter {
   faction: "ALLIANCE" | "HORDE";
   realm: MockRealm;
   guild: string | null;
+  /** Rank in `guild`; 0 is the Guild Master. */
+  guildRank?: number;
 }
 
 export const MOCK_CHARACTERS: readonly MockCharacter[] = [
-  { name: "Aldric", level: 60, currentLevel: 60, classId: 2, className: "Paladin", raceId: 1, race: "Human", faction: "ALLIANCE", realm: CRUSADERS_REACH, guild: "Order of Saint Michael" },
+  { name: "Aldric", level: 60, currentLevel: 60, classId: 2, className: "Paladin", raceId: 1, race: "Human", faction: "ALLIANCE", realm: CRUSADERS_REACH, guild: "Order of Saint Michael", guildRank: 0 },
   { name: "Brenna", level: 42, currentLevel: 44, classId: 5, className: "Priest", raceId: 3, race: "Dwarf", faction: "ALLIANCE", realm: CRUSADERS_REACH, guild: null },
   { name: "Corwin", level: 27, currentLevel: 27, classId: 11, className: "Druid", raceId: 4, race: "Night Elf", faction: "ALLIANCE", realm: SILVERPINE, guild: null },
   { name: "Grukk", level: 60, currentLevel: 60, classId: 1, className: "Warrior", raceId: 2, race: "Orc", faction: "HORDE", realm: CRUSADERS_REACH, guild: null },
@@ -39,7 +43,10 @@ export const MOCK_CHARACTERS: readonly MockCharacter[] = [
   { name: "Mortis", level: 58, currentLevel: 58, classId: 6, className: "Death Knight", raceId: 1, race: "Human", faction: "ALLIANCE", realm: CRUSADERS_REACH, guild: null },
 ];
 
-const DREAMSCYTHE: MockRealm = { id: 6225, slug: "dreamscythe", name: "Dreamscythe" };
+const DREAMSCYTHE: MockRealm = { id: 6225, slug: "dreamscythe", name: "Dreamscythe", type: "NORMAL" };
+const REALMS = [CRUSADERS_REACH, SILVERPINE, DREAMSCYTHE];
+
+const mockGuildSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 /** On a Classic Anniversary realm, served from `profile-classicann-*`: listed on the account but never importable. */
 export const MOCK_ANNIVERSARY_CHARACTER: MockCharacter = {
@@ -155,8 +162,49 @@ export function createMockFetch(foreverNamespace = "profile-classic1x-us"): Fetc
         race: { id: c.raceId, name: c.race },
         faction: { type: c.faction },
         realm: { slug: c.realm.slug, name: c.realm.name },
-        ...(c.guild ? { guild: { name: c.guild } } : {}),
+        ...(c.guild
+          ? {
+              guild: {
+                key: { href: `${u.origin}/data/wow/guild/${c.realm.slug}/${mockGuildSlug(c.guild)}?namespace=${foreverNamespace}` },
+                name: c.guild,
+                realm: { slug: c.realm.slug, name: c.realm.name },
+                faction: { type: c.faction },
+              },
+            }
+          : {}),
       });
+    }
+
+    const realm = path.match(/^\/data\/wow\/realm\/([^/]+)$/);
+    if (realm) {
+      const r = REALMS.find((x) => x.slug === decodeURIComponent(realm[1]!));
+      if (!r) return json({ code: 404 }, 404);
+      return json({ id: r.id, slug: r.slug, name: r.name, type: { type: r.type, name: r.type === "PVP" ? "PvP" : "Normal" } });
+    }
+
+    const roster = path.match(/^\/data\/wow\/guild\/([^/]+)\/([^/]+)\/roster$/);
+    if (roster) {
+      const [, realmSlug, guildSlug] = roster.map(decodeURIComponent) as [string, string, string];
+      const members = MOCK_CHARACTERS.flatMap((c) => {
+        if (!c.guild || c.realm.slug !== realmSlug || mockGuildSlug(c.guild) !== guildSlug) return [];
+        const id = registry.get(key(c.realm.slug, c.name));
+        if (!id) return [];
+        return [
+          {
+            character: {
+              id: Number(id),
+              name: c.name,
+              level: c.currentLevel,
+              realm: { slug: c.realm.slug },
+              playable_class: { id: c.classId },
+              playable_race: { id: c.raceId },
+            },
+            rank: c.guildRank ?? 5,
+          },
+        ];
+      });
+      if (members.length === 0) return json({ code: 404 }, 404);
+      return json({ guild: { name: MOCK_CHARACTERS.find((c) => c.guild && mockGuildSlug(c.guild) === guildSlug)?.guild }, members });
     }
 
     return json({ code: 404, detail: "Not Found" }, 404);

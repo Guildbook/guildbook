@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterAll(async () => close());
 
 let n = 0;
-const standardGuild = () => createGuildWithDefaults(db, { slug: `banner-${++n}`, name: `Banner ${n}`, preset: "standard" });
+const standardGuild = () => createGuildWithDefaults(db, { slug: `banner-${++n}`, name: `Banner ${n}`, faction: "alliance", ruleset: "normal", preset: "standard" });
 const readGuild = async (id: string) => (await db.select().from(schema.guilds).where(eq(schema.guilds.id, id)))[0]!;
 
 const form = {
@@ -129,7 +129,7 @@ describe("the Order's theme is exclusive", () => {
     const g = await standardGuild();
     await expect(db.execute(sql`update guilds set theme_base = 'order' where id = ${g.guild.id}`)).rejects.toThrow();
     await expect(
-      db.insert(schema.guilds).values({ slug: `copycat-${++n}`, name: "Copycat", preset: "standard", themeBase: "order" }),
+      db.insert(schema.guilds).values({ slug: `copycat-${++n}`, name: "Copycat", faction: "alliance", ruleset: "normal", preset: "standard", themeBase: "order" }),
     ).rejects.toThrow();
   });
 

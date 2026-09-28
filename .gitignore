@@ -59,12 +59,6 @@ next-env.d.ts
 # brand asset zoom sheets (pnpm brand:assets --preview)
 /.brand-preview/
 
-# vigil companion (Electron): dependencies, bundles, installers, addon copy made at build time
-/companion/node_modules
-/companion/dist
-/companion/release
-/companion/out
-/companion/resources/addon
 .neon
 
 # Local agent tooling

@@ -7,10 +7,13 @@ import { TIER_LABELS } from "@/lib/authz/tiers";
 import { INSIGNIA_INFO, insigniaFor } from "@/lib/insignia";
 import { LORE_SLUG } from "@/lib/lore";
 import { getGuild } from "@/server/context";
+import { guildSocialMetadata } from "@/server/guild-metadata";
 import { listContentPages } from "@/server/services/content";
 import { listRanks } from "@/server/services/ranks";
 
-export const metadata: Metadata = { title: "Charter" };
+export async function generateMetadata({ params }: PageProps<"/[guild]/charter">): Promise<Metadata> {
+  return { title: "Charter", ...(await guildSocialMetadata((await params).guild, "charter")) };
+}
 
 export default async function CharterPage({ params }: PageProps<"/[guild]/charter">) {
   const { guild: slug } = await params;

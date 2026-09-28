@@ -4,6 +4,7 @@ import { AccountSettingsLink, SignOutButton } from "@/components/account-card";
 import { DropdownMenu } from "@/components/dropdown-menu";
 import { GuildEmblem } from "@/components/guild-emblem";
 import { RankInsignia } from "@/components/rank-insignia";
+import { VerifiedSeal } from "@/components/verified-seal";
 import { CLASS_INFO, fullName } from "@/lib/game";
 import { insigniaFor } from "@/lib/insignia";
 import type { listUserGuilds } from "@/server/services/platform";
@@ -73,9 +74,10 @@ function GuildRow({ guild, href }: { guild: UserGuild; href: (path?: string) => 
       <div className="min-w-0 flex-1 leading-tight">
         <a
           href={href()}
-          className="block truncate font-display text-sm font-semibold tracking-wide text-gold group-hover/row:text-gold-bright focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-['']"
+          className="flex items-center gap-1 font-display text-sm font-semibold tracking-wide text-gold group-hover/row:text-gold-bright focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-['']"
         >
-          {guild.name}
+          <span className="truncate">{guild.name}</span>
+          {guild.verifiedAt && <VerifiedSeal size={12} />}
         </a>
         {pending ? (
           <p className="mt-1 text-xs text-muted italic">Application pending</p>

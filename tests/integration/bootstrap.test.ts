@@ -92,6 +92,8 @@ describe("production bootstrap", () => {
 
   it("builds the same guild content as the demo seed", async () => {
     const { guild } = await bootstrapOrderGuild(db);
+    // Guild names are unique per faction and ruleset, so the second copy needs another name.
+    await db.update(schema.guilds).set({ name: "Bootstrapped Order" }).where(eq(schema.guilds.id, guild.id));
     const demo = await seedDemoGuild(db, "demo");
     expect(await guildContent(guild.id)).toEqual(await guildContent(demo.id));
   });

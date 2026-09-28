@@ -1,10 +1,68 @@
+<p align="center">
+  <a href="https://guildbook.io"><img src="public/brand/guildbook/social/x-header.png" alt="Guildbook: guild sites for World of Warcraft: Forever" width="100%"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Guildbook/guildbook/actions/workflows/ci.yml"><img src="https://github.com/Guildbook/guildbook/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
+  <a href="https://guildbook.io"><img src="https://img.shields.io/website?url=https%3A%2F%2Fguildbook.io&label=guildbook.io" alt="guildbook.io"></a>
+  <a href="https://github.com/Guildbook/vigil/releases/latest"><img src="https://img.shields.io/github/v/release/Guildbook/vigil?include_prereleases&sort=semver&label=Vigil" alt="Latest Vigil release"></a>
+  <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-16-black?logo=next.js" alt="Next.js 16"></a>
+  <a href="https://x.com/GuildbookIO"><img src="https://img.shields.io/badge/follow-%40GuildbookIO-black?logo=x" alt="Follow @GuildbookIO on X"></a>
+</p>
+
 # Guildbook
 
-**Guildbook** hosts guild sites for World of Warcraft: Forever at `{slug}.guildbook.io`. Its first guild is the **Order of Saint Michael**, a Catholic raiding guild (*Quis ut Deus*), which keeps its own crest, ranks, prayer and lore. Guilds created on Guildbook start from a neutral template.
+**Guildbook is a home for World of Warcraft: Forever guilds.** Every guild gets its own site at `yourguild.guildbook.io`, with its charter and lore, a roster of Battle.net-verified characters, applications, raid nights and progression, a loot ledger, combat log reviews through Vigil, and a theme drawn from the guild's in-game tabard. It's free, and one Discord sign-in works for every guild.
 
-Built with Next.js (App Router, strict TypeScript), Tailwind CSS v4, Postgres with Drizzle ORM, Auth.js (Discord), Zod, Vitest and Playwright. Deploys to Vercel with Neon Postgres.
+See it live at [osm.guildbook.io](https://osm.guildbook.io), home of the Order of Saint Michael, or start your own at [guildbook.io](https://guildbook.io).
 
-## Setup
+## What a guild site includes
+
+- **Your own address.** A subdomain like `yourguild.guildbook.io`, and your own domain if you want one.
+- **Charter and lore.** Markdown pages for your rules, loot policy and story, with a full revision history.
+- **Roster and ranks.** Your rank ladder, mains and alts, professions, and per-rank permissions in the admin.
+- **Applications.** Recruits sign in with Discord, pick a character verified through Battle.net (or enter one by hand) and apply. Officers review in the admin.
+- **Raid nights.** Schedule, recruitment needs and boss progression, shown in your guild's timezone.
+- **Loot ledger.** An append-only record of who got what, with imports from Gargul, RCLootCouncil and TMB. Members-only by default, or public if you choose.
+- **Vigil.** Members upload combat logs for a private review of each pull: rotation, uptimes and cooldowns.
+- **Tabard theming.** Pick your in-game crest and colors, and the site takes them on.
+- **Audit log.** Every officer action is recorded and can't be edited.
+
+## For guild leaders
+
+1. Sign in at [guildbook.io](https://guildbook.io) with Discord.
+2. Go to [guildbook.io/create](https://guildbook.io/create) and choose a name, subdomain, faction, ruleset and timezone. Your site is live immediately, and you're its Guild Master.
+3. Fill in your charter, ranks, schedule and recruitment needs from the admin, then share the link.
+
+**Faction and ruleset.** WoW: Forever has no realms: each guild lives on one ruleset (Normal, PvP, Roleplaying, or Hardcore once it opens after launch) and one faction. Name, faction and ruleset together identify a guild on Guildbook, and only one guild can hold each combination.
+
+**Verification.** Names and subdomains of unverified guilds are first come, first served. A guild becomes **verified** when its in-game Guild Master links Battle.net and proves they lead the in-game guild with that name, faction and ruleset. A verified Guild Master can claim their guild's name, or the matching subdomain, from an unverified guild; that guild is renamed or moved to a numbered subdomain, keeps its members and content, and its admins are told why. A verified guild's name can't be claimed. Guildbook re-checks verification daily and removes it after a week of failed checks. Verification needs WoW: Forever characters, so it opens when the game launches on November 4, 2026. The full policy is in the [Terms](https://guildbook.io/terms).
+
+## For members
+
+- **Sign in with Discord.** One Guildbook account for every guild, with no password.
+- **Link Battle.net** (optional) from Apply or My Characters to import your WoW: Forever characters. Their name, class and level come from Blizzard and show as verified to officers, and levels stay in sync. Characters entered by hand are marked unverified.
+- **Apply** from your guild's Apply page, and follow your application from there.
+- **Get Vigil** at [guildbook.io/vigil](https://guildbook.io/vigil). The desktop companion watches your combat log on a second screen, shows live rotation callouts and uploads each fight to your guild. It only reads the log file on disk; it never touches the game. Source and releases: [Guildbook/vigil](https://github.com/Guildbook/vigil).
+- **Your data.** Export or delete your account from your account page. See the [Privacy Policy](https://guildbook.io/privacy).
+
+## Links
+
+| | |
+|---|---|
+| Guildbook | [guildbook.io](https://guildbook.io) |
+| Guild directory | [guildbook.io/guilds](https://guildbook.io/guilds) |
+| Showcase guild | [osm.guildbook.io](https://osm.guildbook.io) (Order of Saint Michael) |
+| Vigil companion | [guildbook.io/vigil](https://guildbook.io/vigil) and [Guildbook/vigil](https://github.com/Guildbook/vigil) |
+| Updates | [@GuildbookIO on X](https://x.com/GuildbookIO) |
+| Legal | [Terms](https://guildbook.io/terms) and [Privacy](https://guildbook.io/privacy) |
+
+## Self-hosting and development
+
+Guildbook is built with Next.js 16 (App Router, strict TypeScript), Tailwind CSS v4, Postgres with Drizzle ORM, Auth.js (Discord), Zod, Vitest and Playwright. The hosted service runs on Vercel with Neon Postgres. The Order of Saint Michael, Guildbook's first guild, keeps its own crest, ranks, prayer and lore through the `order` preset; new guilds start from a neutral template.
+
+### Setup
 
 Requirements: Node 22+, pnpm 10+, Docker (or any Postgres 15+).
 
@@ -29,7 +87,7 @@ Local hosts (no `/etc/hosts` edits needed; browsers resolve `*.localhost` to you
 
 Sign-in always happens on `localhost:3000`, where the Discord redirect URI is registered, and hands the session to `*.localhost` (see Sign-in below).
 
-### Signing in locally without a Discord app
+#### Signing in locally without a Discord app
 
 Set `AUTH_TEST_MODE=1` in `.env.local`. The login page (`http://osm.localhost:3000/login` sends you to the apex login with the Order as the destination) then shows a test form. Pick a seeded account or enter a seeded Discord ID to sign in as that member:
 
@@ -43,13 +101,13 @@ Set `AUTH_TEST_MODE=1` in `.env.local`. The login page (`http://osm.localhost:30
 
 Any other ID creates a new user with no membership. Test mode must never be enabled in production; the app refuses to start if `AUTH_TEST_MODE=1` and `VERCEL_ENV=production`.
 
-### Discord OAuth
+#### Discord OAuth
 
 1. Create an application at <https://discord.com/developers/applications>.
 2. Under **OAuth2**, add redirect URIs `http://localhost:3000/api/auth/callback/discord` and `https://guildbook.io/api/auth/callback/discord`. Guild subdomains and custom domains never run OAuth themselves; they send sign-in to the apex, so no per-guild URIs are needed.
 3. Copy the client ID and secret into `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`.
 
-### Battle.net character verification
+#### Battle.net character verification
 
 Members sign in with Discord. Battle.net is linked afterwards, from Apply or My Characters, so applicants can pick a character whose name, class and level come from Blizzard (officers see **Verified via Battle.net**), and members can import verified characters whose levels sync automatically. Manual entry always remains and is marked **Unverified**.
 
@@ -76,7 +134,7 @@ To test before launch with characters from another game (for example Anniversary
 
 **Mock mode.** `BATTLENET_MOCK=1` replaces Blizzard with fixture characters (Aldric, Brenna and Corwin for the Alliance, a Horde warrior and a Death Knight that are filtered out) in the Forever namespace, plus an Anniversary character (Elowen, Dreamscythe) that is listed as found but excluded. Linking skips the Battle.net page. Playwright always runs in mock mode, and the Vitest suites inject a fake `fetch`; no test calls Blizzard. The app refuses mock mode when `VERCEL_ENV=production`.
 
-## Environment variables
+### Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
@@ -98,15 +156,18 @@ To test before launch with characters from another game (for example Anniversary
 | `BATTLENET_REALMS` | no | Comma-separated WoW: Forever realm slugs. When set, only characters on these realms can be verified. See above. |
 | `BATTLENET_SCAN_NAMESPACES` | no | Comma-separated namespaces read at link time to explain an empty result. Default `profile-classic1x-{region},profile-classicann-{region},profile-classic-{region},profile-{region}`. |
 | `BATTLENET_STATIC_NAMESPACE` | no | Game Data namespace for loot item names and icons, default `static-classic1x-{region}`. See Loot ledger. |
+| `BATTLENET_DYNAMIC_NAMESPACE` | no | Game Data namespace for realm types, used by guild verification. Defaults to the profile namespace's `dynamic-` twin. |
+| `BATTLENET_REALM_RULESETS` | no | Realm slug to ruleset overrides (`realm-a:pvp,realm-b:normal`), checked before Blizzard's realm type. |
 | `BATTLENET_GUILD_REALM` / `BATTLENET_GUILD_SLUG` | no | In-game guild for one-request roster syncs. |
 | `BATTLENET_REDIRECT_URI` | no | Overrides `<origin>/api/battlenet/callback`. |
 | `BATTLENET_MOCK` | dev/test only | `1` serves fixture characters instead of calling Blizzard. |
 | `CRON_SECRET` | on Vercel | Bearer secret for `/api/cron/daily` and `/api/cron/battlenet-sync`. |
 | `APPLICATION_RETENTION_DAYS` | no | Days before withdrawn and declined applications are deleted (default 180). Shown in the privacy policy. |
+| `GITHUB_TOKEN` | no | Raises the GitHub API rate limit for the Vigil download page's release lookup. Not needed for public repositories. |
 | `AUTH_TEST_MODE` | dev/test only | `1` enables the test-login provider used by Playwright. |
 | `E2E_DATABASE_URL` | no | Database for Playwright runs (defaults to `DATABASE_URL`). **It is wiped and reseeded.** |
 
-## Migration workflow
+### Migrations
 
 The schema lives in `src/db/schema.ts`. Migrations are SQL files in `drizzle/`, generated and applied with drizzle-kit. Don't use `drizzle-kit push`.
 
@@ -116,15 +177,28 @@ The schema lives in `src/db/schema.ts`. Migrations are SQL files in `drizzle/`, 
 4. `pnpm db:migrate` applies pending migrations to `DATABASE_URL`.
 5. Commit the schema change, the SQL file and `drizzle/meta` together.
 
-Production: run `DATABASE_URL=<neon-url> pnpm db:migrate` before (or as part of) promoting a deployment. Use a direct (non-pooled) Neon URL for migrations if the pooler rejects DDL. Migration `0009_guildbook_platform` adds `guild_domains` and the guild `preset`, `directory_listed` and `created_by_user_id` columns, and marks existing guilds with the Order preset so their content is unchanged.
+Production: run `DATABASE_URL=<neon-url> pnpm db:migrate` before (or as part of) promoting a deployment. Use a direct (non-pooled) Neon URL for migrations if the pooler rejects DDL.
 
-## Guildbook hosting
+### Testing
+
+```bash
+pnpm test        # Vitest: unit tests + integration tests on in-memory Postgres (PGlite), real migrations applied
+pnpm test:e2e    # Playwright on mobile + desktop viewports; starts `pnpm dev` with AUTH_TEST_MODE=1 and reseeds
+pnpm typecheck   # on a fresh checkout, run `pnpm exec next typegen` first to generate route types
+pnpm lint
+```
+
+The integration tests need no database server. Each file boots PGlite and runs every migration, so the triggers and composite foreign keys are tested too.
+
+GitHub Actions runs typecheck, lint, Vitest and a production build on every push to `main` and every pull request ([`ci.yml`](.github/workflows/ci.yml)). The Playwright suite runs separately against a throwaway Postgres ([`e2e.yml`](.github/workflows/e2e.yml)).
+
+### Hosting
 
 **Routing.** `src/proxy.ts` reads the `Host` header (logic in `src/lib/hosts.ts`, unit-tested):
 
 | Host | Result |
 |---|---|
-| `guildbook.io` | Platform pages from `src/app/platform/` (landing, `/login`, `/create`, `/guilds`) |
+| `guildbook.io` | Platform pages from `src/app/platform/` (landing, `/login`, `/create`, `/guilds`, `/vigil`) |
 | `www.guildbook.io`, and any `ALT_DOMAINS` host with its subdomains | 308 to the same name and path on `guildbook.io` |
 | `{slug}.guildbook.io` | Rewritten onto `src/app/[guild]/`. Links carry no slug (`guildHref` only prefixes in the legacy path mode) |
 | Reserved subdomains (`www`, `app`, `api`, `auth`, `admin`, `mail`, `static`, `assets`, `docs`, `status`, `blog` and more) | Redirect to the apex. They can never be guild slugs |
@@ -133,13 +207,13 @@ Production: run `DATABASE_URL=<neon-url> pnpm db:migrate` before (or as part of)
 
 **Sign-in.** All OAuth happens on the apex. A guild's `/login` redirects to `guildbook.io/login?callbackUrl=<guild URL>`. `callbackUrl` (and the Auth.js `redirect` callback, and the Battle.net `returnTo`) must be a same-origin path, the apex, a non-reserved guild subdomain over https, or a verified custom domain; anything else falls back to the apex, so there are no open redirects. The session cookie is set on `.guildbook.io` (`AUTH_COOKIE_DOMAIN`), so subdomains share it. Custom domains can't share that cookie, so the apex hands the session over once: `/api/handoff/start` mints a 60-second HMAC-signed token bound to the target host and stored (hashed) for one use; the custom domain's `/api/handoff/complete` redeems it and sets its own host-only session cookie. Locally, browsers refuse `Domain=localhost` cookies, so `*.localhost` uses the same handoff.
 
-**Creating a guild.** Signed-in users create guilds at `guildbook.io/create`: name, subdomain (live availability check), faction, timezone, motto and directory opt-in. The creator becomes Guild Master (Admin tier) and lands on `{slug}.guildbook.io/admin`. New guilds use the neutral `standard` preset (Guild Master, Officer, Raider, Member, Trial, Applicant; a plain charter, loot policy and "Our story" page; a monogram shield). The Order's Catholic ranks, prayer, lore, crest and copy belong to the `order` preset only. Creation is limited per user (`GUILD_CREATE_LIMIT`, `GUILD_CREATE_DAILY_LIMIT`) and rate-limited.
+**Creating a guild.** Signed-in users create guilds at `guildbook.io/create`: name, subdomain (live availability check), faction, ruleset, timezone, motto and directory opt-in. The creator becomes Guild Master (Admin tier) and lands on `{slug}.guildbook.io/admin`. New guilds use the neutral `standard` preset (Guild Master, Officer, Raider, Member, Trial, Applicant; a plain charter, loot policy and "Our story" page; a monogram shield). The Order's Catholic ranks, prayer, lore, crest and copy belong to the `order` preset only. Creation is limited per user (`GUILD_CREATE_LIMIT`, `GUILD_CREATE_DAILY_LIMIT`) and rate-limited.
 
 **Custom domains.** Guild admins add a domain under Admin, Guild. The page shows the records to create: an A record to `76.76.21.21` (apex domains) or a CNAME to `cname.vercel-dns.com` (subdomains), plus a TXT record `_guildbook.<domain>` with a per-domain token. **Check verification** requires the TXT token (so nobody can claim a domain another guild set up) and, when `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` are set, that Vercel has the domain attached, verified and correctly configured. Only verified domains are routed, and a guild's first verified domain becomes its canonical URL.
 
-**Vigil companion.** Pairing uses the address the member opened Vigil on, so the companion's site URL becomes the guild's subdomain (for example `https://osm.guildbook.io`), or its custom domain.
+**Vigil companion.** The desktop app only talks to the apex (`https://guildbook.io`, built in). Pairing codes are global, so the apex knows which guild a code belongs to and answers with that guild's canonical site (its verified custom domain, else `https://{slug}.guildbook.io`), which the app uses for links. The API routes under `/api/vigil/companion/` answer on every host, so older pairings keep working. Downloads live at `guildbook.io/vigil`; the app itself is in [Guildbook/vigil](https://github.com/Guildbook/vigil).
 
-### Deploying Guildbook on Vercel
+#### Deploying on Vercel
 
 1. **Nameservers.** In the Vercel dashboard, add `guildbook.io` to the team and point the registrar's nameservers at Vercel (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`). Wildcard domains need Vercel DNS.
 2. **Domains on the project.** Add `guildbook.io` and `*.guildbook.io` to the project. Add `www.guildbook.io` too (the app redirects it).
@@ -149,18 +223,7 @@ Production: run `DATABASE_URL=<neon-url> pnpm db:migrate` before (or as part of)
 6. **Database.** `DATABASE_URL=<neon-direct-url> pnpm db:migrate`, then `DATABASE_URL=<neon-direct-url> pnpm db:bootstrap`, which creates the Order of Saint Michael (ranks, charter, lore, schedule, raids, addons) with no members or demo data, and does nothing if it already exists. Deploy, and the Order is at `osm.guildbook.io`. Never run `pnpm db:seed` against production.
 7. **Guild leader.** After signing in on `guildbook.io` with Discord once, run `DATABASE_URL=<neon-direct-url> pnpm guild:grant-owner --guild osm --discord <Discord user ID or username>`. It makes that user an active member at the top admin rank (Grand Master) and records it in the audit log.
 
-## Testing
-
-```bash
-pnpm test        # Vitest: unit tests + integration tests on in-memory Postgres (PGlite), real migrations applied
-pnpm test:e2e    # Playwright on mobile + desktop viewports; starts `pnpm dev` with AUTH_TEST_MODE=1 and reseeds
-pnpm typecheck
-pnpm lint
-```
-
-The integration tests need no database server. Each file boots PGlite and runs every migration, so the triggers and composite foreign keys are tested too.
-
-## Architecture
+### Architecture
 
 **Guild scoping.** Every table except `users` and the Auth.js tables has a `guild_id`, and every service query filters by it. Child tables reference their parent through a composite `(guild_id, id)` foreign key, so Postgres rejects a row that points at another guild's data even if application code gets it wrong. All guild pages live under `src/app/[guild]/`, and `src/proxy.ts` rewrites each guild's host onto them (`osm.guildbook.io/roster` renders `/osm/roster`). Build links with `guildHref()` so the legacy path-prefixed mode keeps working.
 
@@ -182,7 +245,7 @@ The integration tests need no database server. Each file boots PGlite and runs e
 
 ```
 src/app/[guild]/        guild pages (public, /members, /admin), served on each guild's host
-src/app/platform/       Guildbook apex pages (landing, sign-in, create, directory)
+src/app/platform/       Guildbook apex pages (landing, sign-in, create, directory, Vigil download)
 src/server/services/    business logic, one function per use case, takes (db, actor, rawInput)
 src/server/actions/     thin "use server" wrappers: FormData → service → refresh
 src/lib/validation.ts   Zod schemas for every form and service input
@@ -190,55 +253,28 @@ src/lib/authz/          tiers + policy (pure, unit-tested)
 src/db/                 schema, client, seed data
 drizzle/                SQL migrations
 tests/                  integration tests (PGlite); e2e/ Playwright
-companion/              Vigil companion desktop app (Electron), a separate pnpm project
+addons/                 in-game WoW addons (Lua), shipped as-is
 ```
 
-## Vigil companion (desktop)
+### Vigil companion
 
-`companion/` is an Electron app for a second monitor. It tails `WoWCombatLog*.txt`, shows the current fight live (score, GCD use, idle time, uptimes, rotation callouts) and uploads each finished fight to Vigil. It only reads the log file on disk. It never sends input to the game, reads its memory or looks at the screen.
+The Vigil desktop companion (Electron) lives in its own repository, [Guildbook/vigil](https://github.com/Guildbook/vigil), with its build, release and signing instructions. It tails `WoWCombatLog*.txt` on a second monitor, shows the current fight live and uploads each finished fight here through `/api/vigil/companion/`. It vendors this repository's combat log parser and Vigil analysis (`src/lib/combatlog/`, `src/lib/vigil/`, `src/lib/game.ts`) in its `shared/` folder, so keep `src/lib/vigil/report.ts`, the upload contract, compatible with the app or change both together.
 
-It is a standalone pnpm project (its own `pnpm-workspace.yaml` and lockfile), not a workspace member, so the site's install and Vercel deploy never pull in Electron. `.vercelignore` also leaves it out of the upload. The combat log parser and Vigil analysis are shared rather than copied: esbuild, Vitest and `tsc` resolve `@/` to the site's `src/`.
-
-```bash
-pnpm companion:dev     # install companion deps, build, watch and launch (site at http://osm.localhost:3000)
-pnpm companion:test    # tailer, engine, paths, uploader and house-style tests
-cd companion && pnpm typecheck && pnpm lint
-```
-
-To pair, open Vigil, then **Connect Vigil companion**, create a code and enter it in the app's settings (or click **Open in the companion**). The app exchanges it for a device token, stored with Electron `safeStorage` (Keychain on macOS, DPAPI on Windows). Members can revoke devices on the same page.
-
-Without the game, try it with a synthetic log written in real time:
-
-```bash
-cd companion
-pnpm demo:log /tmp/vigil-demo/Logs                  # terminal 1
-VIGIL_LOGS_DIR=/tmp/vigil-demo/Logs pnpm dev         # terminal 2
-```
-
-Development-only variables: `VIGIL_LOGS_DIR` (Logs folder), `VIGIL_USER_DATA` (settings folder), `VIGIL_PAIR_CODE` (pair on launch), `VIGIL_CAPTURE_DIR` (save window PNGs every `VIGIL_CAPTURE_EVERY_MS`). Packaged builds ignore the last two.
-
-**Packaging.** Set the production site address at build time:
-
-```bash
-cd companion
-VIGIL_SITE_URL=https://<site> pnpm dist:mac    # dmg + zip, arm64 and x64, in companion/release/
-VIGIL_SITE_URL=https://<site> pnpm dist:win    # NSIS installer, x64
-```
-
-Builds are unsigned for now (`mac.identity: null`). Before shipping:
-- **macOS:** a Developer ID Application certificate (`CSC_LINK`/`CSC_KEY_PASSWORD`), then remove `identity: null`, set `hardenedRuntime: true` and add notarisation (`APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, or `APPLE_ID` with an app-specific password and `APPLE_TEAM_ID`). Unsigned builds need right-click, Open on first launch.
-- **Windows:** an OV/EV code-signing certificate or Azure Trusted Signing (`win.azureSignOptions`); unsigned installers trigger SmartScreen.
-- Build each platform on its own OS (or in CI) so native signing tools are available.
+The download page at `guildbook.io/vigil` (`src/app/platform/vigil/page.tsx`) lists the latest published release of Guildbook/vigil (tags `v<version>`) from GitHub's public API without a token, cached for an hour; set `GITHUB_TOKEN` on Vercel only if you hit the rate limit. It reads the `vigil-signing` marker the release workflow writes into the notes to decide whether to explain Gatekeeper and SmartScreen.
 
 ## Roadmap
 
-- **Phase 1 (done):** Discord auth, characters (WoW: Forever first name + required surname, unique on the full name; any class/faction combination; a guild can be locked to one faction in Guild Settings, which hides faction options site-wide; the demo guild is Alliance-only), roster, public pages, applications, officer admin (applications, members, ranks, charter, schedule, recruitment, progression, addons, guild settings, audit log).
-- **Phase 2:** raid calendar with signups and composition targets, attendance with 4/8-week percentages, feast-day and rosary events calendar.
-- **Phase 3:** append-only loot ledger with reversals, and Gargul and RCLootCouncil import behind a pluggable parser interface (MVP done; guild bank next).
-- **Later:** Discord bot (post raids, reaction signups, role sync), Warcraft Logs import.
+- Raid calendar with signups and composition targets, and attendance with 4 and 8 week percentages.
+- Guild bank tracking alongside the loot ledger.
+- Discord bot: post raids, reaction signups, role sync.
+- Warcraft Logs import.
+
+## Contributing
+
+Issues and pull requests are welcome at [Guildbook/guildbook](https://github.com/Guildbook/guildbook). Before opening a pull request, make sure `pnpm typecheck`, `pnpm lint` and `pnpm test` pass (CI checks these and the production build), and include a migration for any schema change. Keep changes scoped to one guild's data (see Guild scoping) and put permission checks in the service layer. Bugs and ideas for the desktop companion belong in [Guildbook/vigil](https://github.com/Guildbook/vigil).
 
 ## License
 
 Guildbook is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified version as a network service, you must make your source available to its users. The license does not cover Blizzard artwork (the icons in `public/icons/classes/` and `public/icons/factions/`, see their `NOTICE` files) or the bundled fonts (see `scripts/fonts/OFL.txt`).
 
-World of Warcraft and Blizzard Entertainment are trademarks or registered trademarks of Blizzard Entertainment, Inc. This is a non-commercial fan site, not affiliated with or endorsed by Blizzard. It uses no Blizzard logos. The class icons in `public/icons/classes/` are Blizzard artwork (see the `NOTICE` there), and loot item icons are shown from Blizzard's render CDN without being stored.
+World of Warcraft and Blizzard Entertainment are trademarks or registered trademarks of Blizzard Entertainment, Inc. Guildbook is a non-commercial fan project, not affiliated with or endorsed by Blizzard. It uses no Blizzard logos. The class and faction icons in `public/icons/` are Blizzard artwork (see the `NOTICE` files there), and loot item icons are shown from Blizzard's render CDN without being stored.

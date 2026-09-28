@@ -40,6 +40,14 @@ Guild leaders must only use member and applicant information to run the guild. T
 
 Each guild's own rules apply inside that guild in addition to these terms. If they conflict, these terms win.
 
+## Guild names
+
+A guild on Guildbook is identified by its name, faction and WoW: Forever ruleset, and only one guild can hold each combination. Names and subdomains of unverified guilds are first come, first served.
+
+A guild becomes verified when its in-game Guild Master proves, through a linked Battle.net account, that they lead the in-game guild with that name, faction and ruleset. A verified Guild Master may claim a name, or the subdomain matching their guild's name, that is held by an unverified guild. When that happens, the unverified guild is renamed (for example "Name (unverified)") or moved to a numbered subdomain, its admins are told why, and the change is recorded in its audit log. Nothing else changes: its members, content and custom domains stay with it, and the old subdomain doesn't redirect. A verified guild's name or subdomain can't be claimed. Guildbook re-checks verification daily and removes it after a week of failed checks.
+
+We may also reserve, reassign or remove names and subdomains that impersonate Blizzard, other guilds or people, or that are held only to keep them from others.
+
 ## Acceptable use
 
 When using Guildbook you must not:

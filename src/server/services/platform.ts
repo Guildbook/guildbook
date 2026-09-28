@@ -1,6 +1,8 @@
-import { and, asc, count, eq, gte, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { characters, guildDomains, guilds, memberships, ranks } from "@/db/schema";
 import type { Db } from "@/db/types";
+import type { Faction, Ruleset } from "@/lib/game";
+import { describeIdentity, type GuildIdentity } from "@/lib/guild-identity";
 import { slugProblem } from "@/lib/hosts";
 import { createGuildInput, SLUG_MESSAGES } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
@@ -37,6 +39,28 @@ export async function checkSlugAvailability(db: Db, raw: string): Promise<SlugAv
   return taken ? { available: false, reason: "That subdomain is taken" } : { available: true };
 }
 
+/** The guild holding this (name, faction, ruleset), compared case-insensitively like `guilds_identity_key`. */
+export async function findGuildByIdentity(db: Db, identity: GuildIdentity, exceptGuildId?: string) {
+  const [row] = await db
+    .select({ id: guilds.id, slug: guilds.slug, name: guilds.name, verifiedAt: guilds.verifiedAt })
+    .from(guilds)
+    .where(
+      and(
+        sql`lower(${guilds.name}) = lower(${identity.name})`,
+        eq(guilds.faction, identity.faction),
+        eq(guilds.ruleset, identity.ruleset),
+        exceptGuildId ? ne(guilds.id, exceptGuildId) : undefined,
+      ),
+    );
+  return row ?? null;
+}
+
+export function identityTakenMessage(identity: GuildIdentity): string {
+  return `A guild called ${identity.name} (${describeIdentity(identity)}) is already on Guildbook. Choose another name, or, if you are that guild's Guild Master in game, create yours under a temporary name and verify it to claim the name.`;
+}
+
+export const IDENTITY_CONSTRAINT = "guilds_identity_key";
+
 /**
  * Founds a guild on Guildbook: neutral "standard" preset (ranks, charter, loot policy, story page), with the
  * creator as an active member at the top rank (Guild Master, an admin).
@@ -62,6 +86,8 @@ export async function createGuildForUser(
 
   const availability = await checkSlugAvailability(db, input.slug);
   if (!availability.available) throw new DomainError(availability.reason);
+  const holder = await findGuildByIdentity(db, input);
+  if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }));
 
   try {
     return await db.transaction(async (tx) => {
@@ -71,6 +97,7 @@ export async function createGuildForUser(
         motto: input.motto,
         timezone: input.timezone,
         faction: input.faction,
+        ruleset: input.ruleset,
         directoryListed: input.directoryListed,
         preset: "standard",
         createdByUserId: userId,
@@ -83,11 +110,17 @@ export async function createGuildForUser(
       await recordAudit(
         tx,
         { guildId: created.guild.id, userId, membershipId: membership!.id, tier: "admin" },
-        { action: "guild.create", targetType: "guild", targetId: created.guild.id, after: { slug: input.slug, name: input.name } },
+        {
+          action: "guild.create",
+          targetType: "guild",
+          targetId: created.guild.id,
+          after: { slug: input.slug, name: input.name, faction: input.faction, ruleset: input.ruleset },
+        },
       );
       return { guild: created.guild, founderRank: top };
     });
   } catch (err) {
+    if (isUniqueViolation(err, IDENTITY_CONSTRAINT)) throw new DomainError(identityTakenMessage(input));
     if (isUniqueViolation(err)) throw new DomainError("That subdomain is taken");
     throw err;
   }
@@ -103,6 +136,8 @@ export async function listUserGuilds(db: Db, userId: string) {
       preset: guilds.preset,
       ...guildLookColumns,
       faction: guilds.faction,
+      ruleset: guilds.ruleset,
+      verifiedAt: guilds.verifiedAt,
       status: memberships.status,
       rankName: ranks.name,
       rankTier: ranks.tier,
@@ -133,8 +168,13 @@ export async function listUserGuilds(db: Db, userId: string) {
   return attachDomains(db, rows);
 }
 
-/** Guilds that opted in to the public directory, with active member counts, largest first. */
-export async function listDirectoryGuilds(db: Db) {
+export interface DirectoryFilter {
+  faction?: Faction;
+  ruleset?: Ruleset;
+}
+
+/** Guilds that opted in to the public directory, with active member counts: verified first, then largest. */
+export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) {
   const rows = await db
     .select({
       id: guilds.id,
@@ -145,11 +185,19 @@ export async function listDirectoryGuilds(db: Db) {
       preset: guilds.preset,
       ...guildLookColumns,
       faction: guilds.faction,
+      ruleset: guilds.ruleset,
+      verifiedAt: guilds.verifiedAt,
       recruitmentOpen: guilds.recruitmentOpen,
       timezone: guilds.timezone,
     })
     .from(guilds)
-    .where(eq(guilds.directoryListed, true))
+    .where(
+      and(
+        eq(guilds.directoryListed, true),
+        filter.faction ? eq(guilds.faction, filter.faction) : undefined,
+        filter.ruleset ? eq(guilds.ruleset, filter.ruleset) : undefined,
+      ),
+    )
     .orderBy(asc(guilds.name));
   if (rows.length === 0) return [];
   const counts = await db
@@ -159,7 +207,7 @@ export async function listDirectoryGuilds(db: Db) {
     .groupBy(memberships.guildId);
   const withCounts = rows
     .map((r) => ({ ...r, members: counts.find((c) => c.guildId === r.id)?.members ?? 0 }))
-    .sort((a, b) => b.members - a.members || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(Boolean(b.verifiedAt)) - Number(Boolean(a.verifiedAt)) || b.members - a.members || a.name.localeCompare(b.name));
   return attachDomains(db, withCounts);
 }
 

@@ -42,6 +42,36 @@ export const FACTIONS = ["alliance", "horde"] as const;
 export type Faction = (typeof FACTIONS)[number];
 export const FACTION_LABELS: Record<Faction, string> = { alliance: "Alliance", horde: "Horde" };
 
+/**
+ * WoW: Forever rulesets. Forever has no realms: players pick a ruleset instead, and each ruleset is its own
+ * ecosystem (no cross-ruleset grouping, factions still separate), so a guild belongs to exactly one.
+ * Source: Blizzard, "Choose Your Ruleset in World of Warcraft: Forever"
+ * (https://news.blizzard.com/en-us/article/24302070/choose-your-ruleset-in-world-of-warcraft-forever, September 2026).
+ * Normal, PvP and Roleplaying launch on Nov 4, 2026; Hardcore arrives "sometime after launch".
+ * Correct this list (and `RULESET_BY_REALM_TYPE`) here if Blizzard changes it.
+ */
+export const RULESETS = ["normal", "pvp", "rp", "hardcore"] as const;
+export type Ruleset = (typeof RULESETS)[number];
+export const RULESET_INFO: Record<Ruleset, { label: string; description: string; note?: string }> = {
+  normal: { label: "Normal", description: "Questing and cooperation, PvP when you choose it" },
+  pvp: { label: "PvP", description: "Open-world conflict in contested territory" },
+  rp: { label: "Roleplaying", description: "For players who lean into the fantasy of Azeroth" },
+  hardcore: { label: "Hardcore", description: "One life; death has lasting consequences", note: "Opens after launch" },
+};
+
+/**
+ * Blizzard's Game Data realm `type.type` for each ruleset. Forever's realm types aren't published yet; these are
+ * the values Classic realms use today. `BATTLENET_REALM_RULESETS` overrides them per realm without a code change.
+ */
+export const RULESET_BY_REALM_TYPE: Record<string, Ruleset> = {
+  NORMAL: "normal",
+  PVE: "normal",
+  PVP: "pvp",
+  RP: "rp",
+  ROLEPLAYING: "rp",
+  HARDCORE: "hardcore",
+};
+
 export const PROFESSIONS = [
   "alchemy",
   "blacksmithing",

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { contentPages, guilds, ranks } from "@/db/schema";
 import type { RankTier } from "@/lib/authz/tiers";
-import type { Faction } from "@/lib/game";
+import type { Faction, Ruleset } from "@/lib/game";
 import type { Insignia } from "@/lib/insignia";
 import { LORE_MD, LORE_SLUG, LORE_TITLE } from "@/lib/lore";
 import { ORDER_TABARD } from "@/lib/tabard/config";
@@ -120,7 +120,8 @@ export async function createGuildWithDefaults(
     description?: string;
     timezone?: string;
     realm?: string | null;
-    faction?: Faction | null;
+    faction: Faction;
+    ruleset: Ruleset;
     preset?: GuildPreset;
     directoryListed?: boolean;
     createdByUserId?: string | null;

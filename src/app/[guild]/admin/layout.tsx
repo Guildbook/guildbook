@@ -1,6 +1,8 @@
+import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
 import { NavLink } from "@/components/nav-link";
 import { can } from "@/lib/authz/policy";
 import { guildHref } from "@/lib/paths";
+import { dismissAdminNoticeAction } from "@/server/actions/verification";
 import { getGuild, getViewer } from "@/server/context";
 
 /** Navigation only. Each admin page and service enforces its own permission. */
@@ -42,6 +44,28 @@ export default async function AdminLayout({ children, params }: LayoutProps<"/[g
             ))}
           </ul>
         </nav>
+      )}
+      {guild.adminNotice && can(viewer.actor, "admin.area") && (
+        <aside
+          role="status"
+          className="mx-auto mb-6 max-w-3xl space-y-2 rounded border border-gold-dim/60 bg-gold/5 px-4 py-3 text-sm text-bone"
+          data-testid="admin-notice"
+        >
+          <p className="font-display text-xs tracking-[0.2em] text-gold uppercase">Notice from Guildbook</p>
+          {guild.adminNotice.split(/\n{2,}/).map((paragraph, i) => (
+            <p key={i} className="leading-relaxed">
+              {paragraph}
+            </p>
+          ))}
+          {can(viewer.actor, "guild.settings") && (
+            <ActionForm action={dismissAdminNoticeAction.bind(null, slug)}>
+              <SubmitButton size="sm" variant="ghost">
+                Dismiss
+              </SubmitButton>
+              <FormMessage className="mt-2" />
+            </ActionForm>
+          )}
+        </aside>
       )}
       {children}
     </div>

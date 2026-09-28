@@ -3,6 +3,7 @@ import { Markdown } from "@/components/markdown";
 import { db } from "@/db";
 import { LORE_MD, LORE_SLUG, LORE_TITLE } from "@/lib/lore";
 import { getGuild } from "@/server/context";
+import { guildSocialMetadata } from "@/server/guild-metadata";
 import { getContentPage } from "@/server/services/content";
 
 const DISCLAIMERS = [
@@ -47,13 +48,12 @@ async function loadLore(slug: string) {
 export async function generateMetadata({ params }: PageProps<"/[guild]/lore">): Promise<Metadata> {
   const { guild: slug } = await params;
   const { guild, title } = await loadLore(slug);
-  return {
-    title: guild.preset === "order" ? "Lore" : title,
-    description:
-      guild.preset === "order"
-        ? `${title}: how the ${guild.name} understands Azeroth, the Light and its mission as pilgrims.`
-        : `${title}: the story of ${guild.name}.`,
-  };
+  const pageTitle = guild.preset === "order" ? "Lore" : title;
+  const description =
+    guild.preset === "order"
+      ? `${title}: how the ${guild.name} understands Azeroth, the Light and its mission as pilgrims.`
+      : `${title}: the story of ${guild.name}.`;
+  return { title: pageTitle, description, ...(await guildSocialMetadata(slug, "lore", { title: pageTitle, description })) };
 }
 
 export default async function LorePage({ params }: PageProps<"/[guild]/lore">) {

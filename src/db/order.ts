@@ -13,7 +13,7 @@ import {
   recruitmentNeeds,
   users,
 } from "@/db/schema";
-import type { Faction } from "@/lib/game";
+import type { Faction, Ruleset } from "@/lib/game";
 import { createGuildWithDefaults } from "@/server/services/guilds";
 
 /**
@@ -21,14 +21,17 @@ import { createGuildWithDefaults } from "@/server/services/guilds";
  * addons. Both the production bootstrap and the local demo seed build the guild from here.
  */
 export const ORDER_FACTION: Faction = "alliance";
+/** Not confirmed yet: Normal until the Order says otherwise. */
+export const ORDER_RULESET: Ruleset = "normal";
 
 export const ORDER_PROFILE = {
   name: "Order of Saint Michael",
   motto: "Quis ut Deus",
   description:
-    "A Catholic raiding guild for World of Warcraft: Forever, open to every player who respects the faith. We raid with discipline, speak with charity, and pray to Saint Michael before every boss.",
+    "A Catholic raiding guild for World of Warcraft: Forever, open to every player who respects the faith. We raid with discipline, speak with charity, and begin every raid with the Prayer to Saint Michael.",
   timezone: "America/New_York",
   faction: ORDER_FACTION,
+  ruleset: ORDER_RULESET,
   preset: "order",
   directoryListed: true,
 } as const;
@@ -101,7 +104,7 @@ Every award is recorded in the loot ledger. Mistakes are corrected with a new en
 
 > *Sancte Michael Archangele, defende nos in proelio; contra nequitiam et insidias diaboli esto praesidium. Imperet illi Deus, supplices deprecamur: tuque, Princeps militiae caelestis, Satanam aliosque spiritus malignos, qui ad perditionem animarum pervagantur in mundo, divina virtute in infernum detrude. Amen.*
 
-We pray this together in voice before every raid.`,
+We pray this together in voice at the start of every raid, and again before the final boss or a first-kill attempt. Anyone may pray privately at any time, and after a first kill we pause for a short thanksgiving.`,
 };
 
 const ORDER_SCHEDULE = [
@@ -137,7 +140,7 @@ const ORDER_ADDONS: Omit<typeof addons.$inferInsert, "guildId">[] = [
   {
     slug: "compline",
     name: "Compline",
-    summary: "Feast-day and prayer-time reminders, plus the Prayer to Saint Michael in a pre-pull popup.",
+    summary: "Feast-day and prayer-time reminders, plus the Prayer to Saint Michael in a popup when the raid begins.",
     status: "beta",
     version: "0.3.0",
     sortOrder: 3,

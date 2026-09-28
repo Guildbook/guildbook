@@ -23,6 +23,8 @@ async function createGuild(page: Page, slug: string, name: string) {
   await page.getByLabel("Guild name").fill(name);
   await page.getByLabel("Subdomain").fill(slug);
   await expect(page.getByTestId("slug-status")).toHaveText("Available");
+  await page.getByLabel("Alliance").check();
+  await page.getByLabel(/^Normal/).check();
   await page.getByLabel("Motto").fill("Hold the line");
   await page.getByRole("button", { name: "Create guild" }).click();
   await page.waitForURL(`${guildOrigin(slug)}/admin`);

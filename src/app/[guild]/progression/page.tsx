@@ -4,9 +4,12 @@ import { db } from "@/db";
 import { type Faction, FACTION_LABELS, FACTIONS } from "@/lib/game";
 import { formatDate } from "@/lib/format";
 import { getGuild } from "@/server/context";
+import { guildSocialMetadata } from "@/server/guild-metadata";
 import { getProgression } from "@/server/services/content";
 
-export const metadata: Metadata = { title: "Progression" };
+export async function generateMetadata({ params }: PageProps<"/[guild]/progression">): Promise<Metadata> {
+  return { title: "Progression", ...(await guildSocialMetadata((await params).guild, "progression")) };
+}
 
 export default async function ProgressionPage({ params }: PageProps<"/[guild]/progression">) {
   const { guild: slug } = await params;

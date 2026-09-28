@@ -277,7 +277,12 @@ describe("charactersForGuild", () => {
   it("keeps only the guild's faction", () => {
     expect(charactersForGuild(chars, { faction: "alliance", realmSlugs: [] }).map((c) => c.name)).toEqual(["Aldric", "Corwin"]);
     expect(charactersForGuild(chars, { faction: "horde", realmSlugs: [] }).map((c) => c.name)).toEqual(["Grukk"]);
-    expect(charactersForGuild(chars, { faction: null, realmSlugs: [] })).toHaveLength(3);
+  });
+
+  it("keeps only the guild's ruleset when the realm's ruleset is known", () => {
+    const tagged = chars.map((c) => ({ ...c, ruleset: c.realmSlug === "b" ? ("pvp" as const) : null }));
+    expect(charactersForGuild(tagged, { faction: "alliance", ruleset: "normal", realmSlugs: [] }).map((c) => c.name)).toEqual(["Aldric"]);
+    expect(charactersForGuild(tagged, { faction: "alliance", ruleset: "pvp", realmSlugs: [] }).map((c) => c.name)).toEqual(["Aldric", "Corwin"]);
   });
 
   it("applies the realm filter when configured", () => {

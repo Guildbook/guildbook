@@ -11,11 +11,14 @@ import { fullName } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { applyAction, withdrawApplicationAction } from "@/server/actions/member";
 import { getGuild, getViewer } from "@/server/context";
+import { guildSocialMetadata } from "@/server/guild-metadata";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
 import { listOwnApplications } from "@/server/services/applications";
 import { getEligibleCharacters } from "@/server/services/battlenet";
 
-export const metadata: Metadata = { title: "Apply" };
+export async function generateMetadata({ params }: PageProps<"/[guild]/apply">): Promise<Metadata> {
+  return { title: "Apply", ...(await guildSocialMetadata((await params).guild, "apply")) };
+}
 
 export default async function ApplyPage({ params, searchParams }: PageProps<"/[guild]/apply">) {
   const { guild: slug } = await params;

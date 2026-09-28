@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ActionForm, Field, FormMessage, SubmitButton } from "@/components/action-form";
 import { FactionChoice } from "@/components/faction-choice";
+import { RulesetChoice } from "@/components/ruleset";
 import { PageHeader, Panel, Tag } from "@/components/ui";
 import { db } from "@/db";
 import { formatDate } from "@/lib/format";
@@ -12,6 +13,7 @@ import { dnsInstructions, type GuildDomain, listGuildDomains, MAX_DOMAINS_PER_GU
 import { vercelConfigFromEnv } from "@/server/vercel-domains";
 import { DeleteGuildPanel } from "./delete-guild-panel";
 import { TabardSection } from "./tabard-section";
+import { VerifyGuildPanel } from "./verify-guild-panel";
 
 export const metadata: Metadata = { title: "Guild Settings" };
 
@@ -100,8 +102,16 @@ export default async function GuildSettingsPage({ params }: PageProps<"/[guild]/
           </Field>
           <fieldset>
             <legend className="field-label">Faction</legend>
-            <FactionChoice defaultValue={guild.faction ?? ""} />
-            <p className="mt-1 text-xs text-muted">Choosing one faction hides faction options across the site.</p>
+            <FactionChoice defaultValue={guild.faction} />
+          </fieldset>
+          <fieldset>
+            <legend className="field-label">Ruleset</legend>
+            <RulesetChoice defaultValue={guild.ruleset} />
+            <p className="mt-1 text-xs text-muted">
+              {guild.verifiedAt
+                ? "Your guild is verified. Changing its name, faction or ruleset removes the verification until you verify again."
+                : "Name, faction and ruleset identify your guild on Guildbook and must match the in-game guild to verify it."}
+            </p>
           </fieldset>
           <Field label="Discord invite link" name="discordInviteUrl" hint="Shown in the site footer, e.g. https://discord.gg/yourcode">
             <input
@@ -129,6 +139,8 @@ export default async function GuildSettingsPage({ params }: PageProps<"/[guild]/
           <SubmitButton>Save</SubmitButton>
         </ActionForm>
       </Panel>
+
+      <VerifyGuildPanel guild={guild} />
 
       <TabardSection guild={guild} />
 

@@ -102,7 +102,7 @@ describe("characters", () => {
   const base = { surname: "Spearwright", faction: "horde", wowClass: "paladin", spec: "Retribution", role: "melee", level: "60", professions: [] };
 
   it("keeps exactly one main per member", async () => {
-    const guild = await createGuild(db);
+    const guild = await createGuild(db, { faction: "horde" });
     const knight = await createMember(db, guild, "Knight");
     const first = await createCharacter(db, knight, { ...base, name: "Brigid" });
     expect(first.isMain).toBe(true);
@@ -118,7 +118,7 @@ describe("characters", () => {
   });
 
   it("allows any class on either faction (WoW Forever has undead paladins)", async () => {
-    const guild = await createGuild(db);
+    const guild = await createGuild(db, { faction: "horde" });
     const knight = await createMember(db, guild, "Knight");
     await expect(createCharacter(db, knight, { ...base, name: "Undeadpal" })).resolves.toMatchObject({
       faction: "horde",
@@ -127,40 +127,37 @@ describe("characters", () => {
   });
 
   it("requires a surname", async () => {
-    const guild = await createGuild(db);
+    const guild = await createGuild(db, { faction: "horde" });
     const knight = await createMember(db, guild, "Knight");
     await expect(createCharacter(db, knight, { ...base, surname: "", name: "Lonely" })).rejects.toThrow(/Surname/);
   });
 
-  it("treats the full first + last name as unique, regardless of faction", async () => {
-    const guild = await createGuild(db);
+  it("treats the full first + last name as unique", async () => {
+    const guild = await createGuild(db, { faction: "horde" });
     const a = await createMember(db, guild, "Knight");
     const b = await createMember(db, guild, "Knight");
     await createCharacter(db, a, { ...base, name: "Longinus" });
     await expect(createCharacter(db, b, { ...base, name: "longinus", surname: "spearwright" })).rejects.toThrow(
       /Longinus Spearwright is already registered/i,
     );
-    await expect(createCharacter(db, b, { ...base, faction: "alliance", name: "Longinus" })).rejects.toThrow(
-      /already registered/,
-    );
     await expect(createCharacter(db, b, { ...base, name: "Longinus", surname: "Lancebearer" })).resolves.toBeTruthy();
     await expect(createCharacter(db, b, { ...base, name: "Cassius" })).resolves.toBeTruthy();
   });
 
   it("cannot edit another member's character", async () => {
-    const guild = await createGuild(db);
+    const guild = await createGuild(db, { faction: "horde" });
     const a = await createMember(db, guild, "Knight");
     const b = await createMember(db, guild, "Knight");
     const char = await createCharacter(db, a, { ...base, name: "Sebastian" });
     await expect(setMainCharacter(db, b, char.id)).rejects.toThrow(/not found/);
   });
 
-  it("requires a faction when the guild spans both", async () => {
-    const guild = await createGuild(db);
+  it("uses the guild's faction when none is given", async () => {
+    const guild = await createGuild(db, { faction: "horde" });
     const knight = await createMember(db, guild, "Knight");
-    await expect(createCharacter(db, knight, { ...base, faction: "", name: "Nofaction" })).rejects.toThrow(
-      /Choose a faction/,
-    );
+    await expect(createCharacter(db, knight, { ...base, faction: "", name: "Nofaction" })).resolves.toMatchObject({
+      faction: "horde",
+    });
   });
 });
 

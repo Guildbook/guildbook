@@ -2,20 +2,26 @@
  * Regenerates the brand assets:
  *   public/brand/osm/        the Order of Saint Michael, from the tabard crest in src/components/crest.tsx
  *   public/brand/guildbook/  the Guildbook platform, from the mark in src/components/guildbook-mark.tsx
- * Each set holds the favicon, icon.svg, apple icon, manifest icons and a link preview (og.png); Guildbook also
- * gets a 1024px icon for the GitHub org avatar and Discord app icon, and social/ holds its X header and circle-safe avatar.
+ * Each set holds the favicon, icon.svg, apple icon and manifest icons; Guildbook also gets its link preview (og.png),
+ * a 1024px icon for the GitHub org avatar and Discord app icon, and social/ holds its X header and circle-safe avatar.
+ *   public/brand/vigil/og.png  the Vigil download page's link preview, from the app icon beside it
+
+ * Guild link previews, the Order's included, are drawn per request by /api/brand/{slug}/og.png.
  *   pnpm brand:assets            writes both sets and the Order's Discord icon
  *   pnpm brand:assets --preview  also writes pixel-zoom sheets of the small marks, and mocks of the X header and
  *                                circle-cropped avatar, to .brand-preview/
  * Rasterized with resvg using the bundled Cinzel fonts (scripts/fonts, SIL OFL) so the preview text matches the site.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CrestArt, type CrestDetail } from "../src/components/crest";
 import { GuildbookMarkArt } from "../src/components/guildbook-mark";
+import { TabardArt } from "../src/components/tabard-crest";
+import type { TabardConfig } from "../src/lib/tabard/config";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FONTS = ["Cinzel-Regular.ttf", "Cinzel-Bold.ttf", "CinzelDecorative-Bold.ttf"].map((f) => path.join(ROOT, "scripts/fonts", f));
@@ -80,37 +86,6 @@ function ico(images: { px: number; data: Buffer }[]) {
   return Buffer.concat([header, ...images.map((i) => i.data)]);
 }
 
-function linkPreview() {
-  const [w, h] = [1200, 630];
-  const crestPx = 480;
-  const text = (y: number, size: number, family: string, fill: string, content: string, extra = "") =>
-    `<text x="830" y="${y}" text-anchor="middle" font-family="${family}" font-size="${size}" fill="${fill}" ${extra}>${content}</text>`;
-  return png(
-    doc(
-      w,
-      h,
-      `<defs>
-        <radialGradient id="glow" cx="0.5" cy="0" r="0.9"><stop offset="0" stop-color="#7a1020" stop-opacity="0.55"/><stop offset="1" stop-color="#7a1020" stop-opacity="0"/></radialGradient>
-        <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5"><stop offset="0.6" stop-color="#a8182f" stop-opacity="0.35"/><stop offset="1" stop-color="#a8182f" stop-opacity="0"/></radialGradient>
-        <linearGradient id="rule" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c" stop-opacity="0"/><stop offset="0.2" stop-color="#c9a44c"/><stop offset="0.5" stop-color="#e6c877"/><stop offset="0.8" stop-color="#c9a44c"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></linearGradient>
-        <linearGradient id="title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2dc98"/><stop offset="1" stop-color="#c9a44c"/></linearGradient>
-      </defs>
-      <rect width="${w}" height="${h}" fill="${INK}"/>
-      <rect width="${w}" height="${h}" fill="url(#glow)"/>
-      <rect x="24" y="24" width="${w - 48}" height="${h - 48}" rx="6" fill="none" stroke="#3a2e22" stroke-width="2"/>
-      <rect x="32" y="32" width="${w - 64}" height="${h - 64}" rx="4" fill="none" stroke="#8a7036" stroke-opacity="0.45" stroke-width="1"/>
-      <circle cx="310" cy="${h / 2}" r="${crestPx / 2 + 10}" fill="url(#halo)"/>
-      ${crest(crestPx, 310, (h - crestPx) / 2)}
-      ${text(232, 62, "Cinzel Decorative", "url(#title)", "Order of", 'font-weight="700"')}
-      ${text(310, 62, "Cinzel Decorative", "url(#title)", "Saint Michael", 'font-weight="700"')}
-      <rect x="650" y="342" width="360" height="2" fill="url(#rule)"/>
-      ${text(398, 30, "Cinzel", "#c8283f", "QUIS UT DEUS", 'font-weight="700" letter-spacing="12"')}
-      ${text(462, 24, "Cinzel", "#ece4d4", "A Catholic raiding guild", 'fill-opacity="0.9"')}
-      ${text(498, 24, "Cinzel", "#ece4d4", "for World of Warcraft: Forever", 'fill-opacity="0.9"')}`,
-    ),
-  );
-}
-
 /** The crest in each box the site renders it in (favicon, header, footer, sign-in), at 1x and zoomed with hard pixels. */
 function previewSheet() {
   const boxes: [number, number][] = [[16, 16], [32, 40], [44, 56], [80, 96]];
@@ -147,29 +122,127 @@ function markTile(px: number, fill: number, radius = 0.22) {
   return doc(px, px, `<rect width="${px}" height="${px}" rx="${px * radius}" fill="${INK}"/><rect x="${px * 0.03}" y="${px * 0.03}" width="${px * 0.94}" height="${px * 0.94}" rx="${px * (radius - 0.02)}" fill="none" stroke="#8a7036" stroke-width="${Math.max(1, px / 64)}"/>${mark(inner, (px - inner) / 2, (px - inner) / 2)}`);
 }
 
+/** Example tabards for the apex preview's row of banners, beside the Order's crest. */
+const EXAMPLE_TABARDS: TabardConfig[] = [
+  { background: 32, border: 14, borderStyle: "double", emblem: "lion", emblemColor: 14 },
+  { background: 26, border: 16, borderStyle: "plain", emblem: "tree", emblemColor: 3 },
+];
+
+/** A generic tabard crest `height` pixels tall, horizontally centered on `cx` with its top at `y`. */
+function tabard(t: TabardConfig, height: number, cx: number, y: number) {
+  const width = height * ASPECT;
+  const markup = renderToStaticMarkup(createElement(TabardArt, { tabard: t, detail: detailAt(width), width, height }));
+  return markup.replace("<svg ", `<svg x="${cx - width / 2}" y="${y}" `);
+}
+
+/**
+ * The apex link preview (1200 by 630, also the X card): the mark and wordmark in the X header's language, then a
+ * row of three banners (the Order's and two example tabards) for "every guild its own banner", and the domain.
+ */
 function guildbookPreview() {
   const [w, h] = [1200, 630];
-  const text = (y: number, size: number, family: string, fill: string, content: string, extra = "") =>
-    `<text x="790" y="${y}" text-anchor="middle" font-family="${family}" font-size="${size}" fill="${fill}" ${extra}>${content}</text>`;
-  return png(
-    doc(
-      w,
-      h,
-      `<defs>
-        <radialGradient id="glow" cx="0.3" cy="0.5" r="0.7"><stop offset="0" stop-color="#c9a44c" stop-opacity="0.18"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></radialGradient>
-        <linearGradient id="rule" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c" stop-opacity="0"/><stop offset="0.2" stop-color="#c9a44c"/><stop offset="0.5" stop-color="#e6c877"/><stop offset="0.8" stop-color="#c9a44c"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></linearGradient>
-        <linearGradient id="title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2dc98"/><stop offset="1" stop-color="#c9a44c"/></linearGradient>
-      </defs>
-      <rect width="${w}" height="${h}" fill="${INK}"/>
-      <rect width="${w}" height="${h}" fill="url(#glow)"/>
-      <rect x="24" y="24" width="${w - 48}" height="${h - 48}" rx="6" fill="none" stroke="#3a2e22" stroke-width="2"/>
-      ${mark(300, 90, (h - 300) / 2)}
-      ${text(290, 80, "Cinzel", "url(#title)", "GUILDBOOK", 'font-weight="700" letter-spacing="8"')}
-      <rect x="590" y="326" width="400" height="2" fill="url(#rule)"/>
-      ${text(392, 28, "Cinzel", "#ece4d4", "Guild sites for", 'fill-opacity="0.9"')}
-      ${text(432, 28, "Cinzel", "#ece4d4", "World of Warcraft: Forever", 'fill-opacity="0.9"')}
-      ${text(494, 22, "Cinzel", "#a39888", "Rosters, applications, raid nights and progression")}`,
-    ),
+  const cx = w / 2;
+  const markPx = 176;
+  const gap = 36;
+  const word = { attrs: 'font-family="Cinzel" font-size="84" font-weight="700" letter-spacing="15"', text: "GUILDBOOK" };
+  const tag = { attrs: 'font-family="Cinzel" font-size="27" letter-spacing="1.5"', text: "Guild sites for World of Warcraft: Forever" };
+  const textW = Math.max(textWidth(word.attrs, word.text), textWidth(tag.attrs, tag.text));
+  const bookW = (markPx * BOOK.width) / 64;
+  const left = cx - (bookW + gap + textW) / 2;
+  const tx = left + bookW + gap;
+  const midY = 236;
+  const markX = left - (markPx * BOOK.left) / 64;
+  const markY = midY - (markPx * BOOK.centerY) / 64;
+  const line = (y: number, attrs: string, fill: string, content: string) => `<text x="${tx}" y="${y}" ${attrs} fill="${fill}">${content}</text>`;
+  const crestPx = 104;
+  const rowY = 380;
+  const spacing = 116;
+  const row = [
+    tabard(EXAMPLE_TABARDS[0]!, crestPx, cx - spacing, rowY),
+    crest(crestPx, cx, rowY),
+    tabard(EXAMPLE_TABARDS[1]!, crestPx, cx + spacing, rowY),
+  ].join("");
+  const ruleY = rowY + crestPx / 2;
+  const reach = spacing + 70;
+  return doc(
+    w,
+    h,
+    `<defs>
+      <radialGradient id="glow" cx="0.5" cy="0" r="0.8"><stop offset="0" stop-color="#c9a44c" stop-opacity="0.16"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#c9a44c" stop-opacity="0.14"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></radialGradient>
+      <radialGradient id="banners" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#7a1020" stop-opacity="0.22"/><stop offset="1" stop-color="#7a1020" stop-opacity="0"/></radialGradient>
+      <radialGradient id="cool" cx="0.5" cy="1" r="0.8"><stop offset="0" stop-color="#8c96aa" stop-opacity="0.06"/><stop offset="1" stop-color="#8c96aa" stop-opacity="0"/></radialGradient>
+      <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75"><stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.5"/></radialGradient>
+      <linearGradient id="fadeLeft" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c" stop-opacity="0"/><stop offset="1" stop-color="#c9a44c"/></linearGradient>
+      <linearGradient id="fadeRight" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></linearGradient>
+      <linearGradient id="tagRule" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c"/><stop offset="0.6" stop-color="#e6c877" stop-opacity="0.7"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></linearGradient>
+      <linearGradient id="title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2dc98"/><stop offset="1" stop-color="#c9a44c"/></linearGradient>
+      ${grain(w, h, 0.05)}
+    </defs>
+    <rect width="${w}" height="${h}" fill="${INK}"/>
+    <rect width="${w}" height="${h}" fill="url(#glow)"/>
+    <rect width="${w}" height="${h}" fill="url(#cool)"/>
+    <rect width="${w}" height="${h}" filter="url(#grain)"/>
+    <rect width="${w}" height="${h}" fill="url(#vignette)"/>
+    <rect x="24" y="24" width="${w - 48}" height="${h - 48}" rx="6" fill="none" stroke="#c9a44c" stroke-opacity="0.25" stroke-width="1"/>
+    <circle cx="${left + bookW / 2}" cy="${midY}" r="${markPx * 0.75}" fill="url(#halo)"/>
+    ${mark(markPx, markX, markY)}
+    ${line(midY - 14, word.attrs, "url(#title)", word.text)}
+    <rect x="${tx}" y="${midY + 10}" width="${textW}" height="1.5" fill="url(#tagRule)" opacity="0.8"/>
+    ${line(midY + 54, tag.attrs, "#ece4d4", tag.text).replace("<text ", '<text fill-opacity="0.9" ')}
+    <ellipse cx="${cx}" cy="${ruleY}" rx="${reach + 40}" ry="${crestPx * 0.9}" fill="url(#banners)"/>
+    <rect x="${cx - reach - 220}" y="${ruleY}" width="220" height="1" fill="url(#fadeLeft)" opacity="0.5"/>
+    ${lozenge(cx - reach, ruleY + 0.5, 4, 0.55)}
+    <rect x="${cx + reach}" y="${ruleY}" width="220" height="1" fill="url(#fadeRight)" opacity="0.5"/>
+    ${lozenge(cx + reach, ruleY + 0.5, 4, 0.55)}
+    ${row}
+    <text x="${cx}" y="${h - 62}" text-anchor="middle" font-family="Cinzel" font-size="22" letter-spacing="4" fill="#ece4d4" fill-opacity="0.75">guildbook.io</text>`,
+  );
+}
+
+/**
+ * The Vigil download page's link preview (1200 by 630): the app icon (public/brand/vigil/icon-512.png, from the
+ * Guildbook/vigil repository's build/icon.png) beside the name and pitch, in the apex preview's language.
+ */
+function vigilPreview() {
+  const [w, h] = [1200, 630];
+  const iconPx = 232;
+  const gap = 56;
+  const word = { attrs: 'font-family="Cinzel" font-size="112" font-weight="700" letter-spacing="22"', text: "VIGIL" };
+  const tag = { attrs: 'font-family="Cinzel" font-size="30" letter-spacing="1.5"', text: "The combat log companion" };
+  const sub = { attrs: 'font-family="Cinzel" font-size="22" letter-spacing="1"', text: "Every pull reviewed on your guild's Guildbook" };
+  const textW = Math.max(textWidth(word.attrs, word.text), textWidth(tag.attrs, tag.text), textWidth(sub.attrs, sub.text));
+  const left = (w - (iconPx + gap + textW)) / 2;
+  const tx = left + iconPx + gap;
+  const midY = 292;
+  const iconData = readFileSync(path.join(ROOT, "public/brand/vigil/icon-512.png"));
+  const line = (y: number, attrs: string, fill: string, content: string) => `<text x="${tx}" y="${y}" ${attrs} fill="${fill}">${content}</text>`;
+  return doc(
+    w,
+    h,
+    `<defs>
+      <radialGradient id="glow" cx="0.5" cy="0" r="0.8"><stop offset="0" stop-color="#c9a44c" stop-opacity="0.14"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></radialGradient>
+      <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#a8182f" stop-opacity="0.38"/><stop offset="1" stop-color="#a8182f" stop-opacity="0"/></radialGradient>
+      <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75"><stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.5"/></radialGradient>
+      <linearGradient id="rule" x1="0" x2="1">${RULE}</linearGradient>
+      <linearGradient id="tagRule" x1="0" x2="1"><stop offset="0" stop-color="#c9a44c"/><stop offset="0.6" stop-color="#e6c877" stop-opacity="0.7"/><stop offset="1" stop-color="#c9a44c" stop-opacity="0"/></linearGradient>
+      <linearGradient id="title" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2dc98"/><stop offset="1" stop-color="#c9a44c"/></linearGradient>
+      ${grain(w, h, 0.05)}
+    </defs>
+    <rect width="${w}" height="${h}" fill="${INK}"/>
+    <rect width="${w}" height="${h}" fill="url(#glow)"/>
+    <rect width="${w}" height="${h}" filter="url(#grain)"/>
+    <rect width="${w}" height="${h}" fill="url(#vignette)"/>
+    <rect x="24" y="24" width="${w - 48}" height="${h - 48}" rx="6" fill="none" stroke="#c9a44c" stroke-opacity="0.25" stroke-width="1"/>
+    <circle cx="${left + iconPx / 2}" cy="${midY}" r="${iconPx * 0.95}" fill="url(#halo)"/>
+    <image x="${left}" y="${midY - iconPx / 2}" width="${iconPx}" height="${iconPx}" href="${dataUri(iconData)}"/>
+    ${line(midY - 22, word.attrs, "url(#title)", word.text)}
+    <rect x="${tx}" y="${midY + 4}" width="${textW}" height="1.5" fill="url(#tagRule)" opacity="0.8"/>
+    ${line(midY + 52, tag.attrs, "#ece4d4", tag.text).replace("<text ", '<text fill-opacity="0.92" ')}
+    ${line(midY + 92, sub.attrs, "#c9a44c", sub.text).replace("<text ", '<text fill-opacity="0.85" ')}
+    <rect x="${w / 2 - 300}" y="${h - 108}" width="600" height="1" fill="url(#rule)" opacity="0.35"/>
+    ${lozenge(w / 2, h - 107.5, 4, 0.5)}
+    <text x="${w / 2}" y="${h - 62}" text-anchor="middle" font-family="Cinzel" font-size="22" letter-spacing="4" fill="#ece4d4" fill-opacity="0.75">guildbook.io/vigil</text>`,
   );
 }
 
@@ -331,7 +404,6 @@ write("public/brand/osm/apple-icon.png", padded(180, 0.8));
 write("public/brand/osm/icon-192.png", icon(192));
 write("public/brand/osm/icon-512.png", icon(512));
 write("public/brand/osm/icon-maskable-512.png", padded(512, 0.6));
-write("public/brand/osm/og.png", linkPreview());
 write("public/brand/discord-icon.png", padded(512, 0.72));
 
 // Guildbook
@@ -343,7 +415,19 @@ write("public/brand/guildbook/icon-512.png", png(markTile(512, 0.86)));
 // For the GitHub org avatar and the Discord app icon, which want 1024px uploads.
 write("public/brand/guildbook/icon-1024.png", png(markTile(1024, 0.86)));
 write("public/brand/guildbook/icon-maskable-512.png", png(markTile(512, 0.6, 0)));
-write("public/brand/guildbook/og.png", guildbookPreview());
+const preview = guildbookPreview();
+const previewPng = png(preview);
+write("public/brand/guildbook/og.png", previewPng);
+// Vigil (the download page at /vigil)
+const vigil = vigilPreview();
+const vigilPng = png(vigil);
+write("public/brand/vigil/og.png", vigilPng);
+// The link previews' URLs carry their content hash, so X and Discord refetch them whenever they change.
+const hash = (data: Buffer) => createHash("sha1").update(data).digest("hex").slice(0, 10);
+write(
+  "src/lib/brand-versions.ts",
+  `// Generated by \`pnpm brand:assets\`; do not edit.\n/** Content hashes of the static link previews, for their \`?v=\` cache-busting parameter. */\nexport const STATIC_PREVIEW_VERSIONS = { guildbook: "${hash(previewPng)}", vigil: "${hash(vigilPng)}" } as const;\n`,
+);
 // For the X account (and other circle-cropping profiles).
 const header = xHeader();
 const xHeaderPng = png(header);
@@ -352,11 +436,13 @@ write("public/brand/guildbook/social/x-header.png", xHeaderPng);
 write("public/brand/guildbook/social/x-header@2x.png", png(header, 3000));
 write("public/brand/guildbook/social/avatar-400.png", avatar400);
 write("public/brand/guildbook/social/avatar-1024.png", png(avatar(1024)));
-
 if (process.argv.includes("--preview")) {
   write(".brand-preview/small-marks.png", previewSheet());
   for (const px of [96, 160, 208, 480]) write(`.brand-preview/crest-${px}.png`, icon(px));
   write(".brand-preview/x-header-mock.png", xHeaderMock(xHeaderPng, avatar400, false));
   write(".brand-preview/x-header-safe-area.png", xHeaderMock(xHeaderPng, avatar400, true));
   write(".brand-preview/avatar-circles.png", avatarCircles());
+  // The link preview at the size Discord and X cards show it.
+  write(".brand-preview/og/apex-600.png", png(preview, 600));
+  write(".brand-preview/og/vigil-600.png", png(vigil, 600));
 }
