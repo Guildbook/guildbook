@@ -127,14 +127,19 @@ test("a member imports verified characters and an officer syncs their levels", a
 
 test("the Guild Master verifies the guild through Battle.net", async ({ page }) => {
   // In mock mode Aldric is Guild Master (rank 0) of "Order of Saint Michael" on a Normal realm, Alliance.
+  // Tor is the only Guild Master and both projects share the database, so the second project finds Tor linked and
+  // the guild already verified; re-checking must still succeed.
   await signIn(page, "seed-tor", "Tor", "/members/characters");
-  await page.getByRole("link", { name: "Link Battle.net" }).click();
-  await expect(page.getByTestId("battlenet-account")).toContainText(/Pilgrim#\d{4}/);
+  const link = page.getByRole("link", { name: "Link Battle.net" });
+  const account = page.getByTestId("battlenet-account");
+  await expect(link.or(account)).toBeVisible();
+  if (await link.isVisible()) await link.click();
+  await expect(account).toContainText(/Pilgrim#\d{4}/);
 
   await page.goto("/admin/guild");
   const panel = page.getByTestId("verify-guild");
   await expect(panel.getByText(/Guild Master \(rank 0\) of an in-game guild named exactly/)).toBeVisible();
-  await panel.getByRole("button", { name: "Check verification" }).click();
+  await panel.getByRole("button", { name: /^(Check verification|Check again)$/ }).click();
   await expect(panel.getByRole("status").filter({ hasText: "Your guild is verified." })).toBeVisible();
   await expect(panel.getByText(/Aldric is the in-game Guild Master/)).toBeVisible();
   await expect(page.getByRole("banner").getByTestId("verified-seal")).toBeVisible();
