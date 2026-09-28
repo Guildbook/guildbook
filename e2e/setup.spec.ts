@@ -83,13 +83,13 @@ test.describe("Guild onboarding", () => {
     await expect(page.getByText("Your guild is published.").first()).toBeVisible();
     await expect(page.getByTestId("setup-step-publish")).toHaveAttribute("data-status", "done");
     await expect(page.getByTestId("draft-banner")).toHaveCount(0);
-    await expect(page.locator('meta[name="robots"]')).toHaveCount(0);
 
     await visitor.goto(`${APEX}/guilds`);
     await expect(visitor.getByTestId("directory").getByRole("link", { name })).toBeVisible();
     await visitor.goto(`${site}/apply`);
     await expect(visitor.getByTestId("apply-draft")).toHaveCount(0);
     await visitor.goto(site);
+    await expect(visitor.locator('meta[name="robots"]')).toHaveCount(0);
     await expect(visitor.getByTestId("footer-opening-soon")).toHaveCount(0);
     await expect(visitor.getByRole("link", { name: "Apply", exact: true }).first()).toBeVisible();
     await visitor.close();
