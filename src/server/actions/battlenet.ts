@@ -29,7 +29,8 @@ export async function refreshBattlenetAction(slug: string, _prev: Prev): Promise
   return runAction(slug, async ({ viewer }) => {
     const snapshot = await refreshBattlenetSnapshot(db, viewer.actor, getBattlenetDeps());
     refresh();
-    return `Found ${snapshot.characters.length} ${snapshot.characters.length === 1 ? "character" : "characters"}.`;
+    const n = snapshot.characters.length;
+    return `Found ${n} WoW: Forever ${n === 1 ? "character" : "characters"}.`;
   });
 }
 

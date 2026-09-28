@@ -1,5 +1,6 @@
-import type { BattlenetCharacterSnapshot } from "@/db/schema";
+import type { BattlenetCharacterSnapshot, BattlenetExcludedGroup, BattlenetNamespaceScan, BattlenetScan } from "@/db/schema";
 import type { Faction, WowClass } from "@/lib/game";
+import { isForeverCharacter, knownGameVersion } from "@/lib/wow-versions";
 import { apiHost, type BlizzardConfig, oauthHost } from "./config";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -8,8 +9,12 @@ export type SnapshotStatus = "ok" | "empty" | "forbidden" | "error";
 
 export interface CharacterListResult {
   status: SnapshotStatus;
+  /** WoW: Forever characters only. */
   characters: BattlenetCharacterSnapshot[];
+  scan: BattlenetScan;
 }
+
+const MAX_EXCLUDED_EXAMPLES = 5;
 
 export interface CharacterProfile {
   id: string;
@@ -142,11 +147,24 @@ function surnameOf(raw: Record<string, unknown>): string | null {
   return value && /^\p{L}{2,12}$/u.test(value) ? value : null;
 }
 
-/** Parses `GET /profile/user/wow`. Characters of classes WoW: Forever doesn't have are dropped. */
-export function parseAccountCharacters(json: unknown): BattlenetCharacterSnapshot[] {
+/** One `wow_accounts[].characters[]` entry, before the WoW: Forever class and faction checks. */
+interface AccountEntry {
+  id: number;
+  name: string;
+  realmSlug: string;
+  realmName: string;
+  level: number | null;
+  classId: number | null;
+  raceName: string;
+  faction: Faction | null;
+  surname: string | null;
+}
+
+/** Every character of every WoW account (licence) in a `GET /profile/user/wow` response. */
+function parseAccountEntries(json: unknown): AccountEntry[] {
   const accounts = obj(json)?.wow_accounts;
   if (!Array.isArray(accounts)) return [];
-  const out: BattlenetCharacterSnapshot[] = [];
+  const out: AccountEntry[] = [];
   for (const account of accounts) {
     const characters = obj(account)?.characters;
     if (!Array.isArray(characters)) continue;
@@ -157,28 +175,54 @@ export function parseAccountCharacters(json: unknown): BattlenetCharacterSnapsho
       const name = localized(c.name);
       const realm = obj(c.realm);
       const realmSlug = typeof realm?.slug === "string" ? realm.slug : null;
-      const level = num(c.level);
-      const classId = num(obj(c.playable_class)?.id);
-      const wowClass = classId != null ? CLASS_BY_ID[classId] : undefined;
+      if (id == null || !name || !realmSlug) continue;
       const race = obj(c.playable_race);
-      const raceId = num(race?.id);
-      const faction = factionOf(c.faction, raceId);
-      if (id == null || !name || !realmSlug || level == null || level < 1 || !wowClass || !faction) continue;
       out.push({
-        id: String(id),
+        id,
         name,
-        surname: surnameOf(c),
         realmSlug,
         realmName: localized(realm?.name) ?? realmSlug,
-        level,
-        wowClass,
-        race: localized(race?.name) ?? "",
-        faction,
-        guildName: null,
+        level: num(c.level),
+        classId: num(obj(c.playable_class)?.id),
+        raceName: localized(race?.name) ?? "",
+        faction: factionOf(c.faction, num(race?.id)),
+        surname: surnameOf(c),
       });
     }
   }
   return out;
+}
+
+function toSnapshot(e: AccountEntry): BattlenetCharacterSnapshot | null {
+  const wowClass = e.classId != null ? CLASS_BY_ID[e.classId] : undefined;
+  if (e.level == null || e.level < 1 || !wowClass || !e.faction) return null;
+  return {
+    id: String(e.id),
+    name: e.name,
+    surname: e.surname,
+    realmSlug: e.realmSlug,
+    realmName: e.realmName,
+    level: e.level,
+    wowClass,
+    race: e.raceName,
+    faction: e.faction,
+    guildName: null,
+  };
+}
+
+/** Parses `GET /profile/user/wow`. Characters of classes WoW: Forever doesn't have are dropped. */
+export function parseAccountCharacters(json: unknown): BattlenetCharacterSnapshot[] {
+  return parseAccountEntries(json).flatMap((e) => toSnapshot(e) ?? []);
+}
+
+interface NamespaceRead extends BattlenetNamespaceScan {
+  entries: AccountEntry[];
+}
+
+/** One-line, count-only summary of a scan for the server log (no names, IDs or tokens). */
+export function describeScanForLog(scan: BattlenetScan, foreverCount: number): string {
+  const parts = scan.namespaces.map((n) => `${n.namespace}=${n.httpStatus}:${n.characters}`);
+  return `${parts.join(" ")} forever=${foreverCount} excluded=${scan.excluded.reduce((sum, g) => sum + g.count, 0)}`;
 }
 
 export function parseCharacterProfile(json: unknown): CharacterProfile | null {
@@ -291,38 +335,89 @@ export class BlizzardClient {
     return { id: String(id), battletag: battletag ?? `Account ${id}` };
   }
 
-  private profileUrl(path: string): string {
+  private profileUrl(path: string, namespace = this.config.profileNamespace): string {
     const url = new URL(path, apiHost(this.config.region));
-    url.searchParams.set("namespace", this.config.profileNamespace);
+    url.searchParams.set("namespace", namespace);
     url.searchParams.set("locale", this.config.locale);
     return url.toString();
   }
 
-  private get(path: string, token: string): Promise<Response> {
-    return this.fetchImpl(this.profileUrl(path), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  private get(path: string, token: string, namespace?: string): Promise<Response> {
+    return this.fetchImpl(this.profileUrl(path, namespace), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
   }
 
   /**
-   * The account's characters in the configured namespace. 404 (no characters in this game) and an empty
-   * list are "empty"; 403 (scope not granted, or the namespace is off limits) is "forbidden".
+   * The account's characters in one namespace. 404 (no characters in this game) and an empty list are "empty";
+   * 401/403 (scope not granted, or a namespace Blizzard doesn't serve) is "forbidden".
    */
-  async getAccountCharacters(accessToken: string): Promise<CharacterListResult> {
+  private async readNamespace(namespace: string, accessToken: string): Promise<NamespaceRead> {
+    const result = (status: NamespaceRead["status"], httpStatus: number, entries: AccountEntry[] = []): NamespaceRead => ({
+      namespace,
+      status,
+      httpStatus,
+      characters: entries.length,
+      entries,
+    });
     let res: Response;
     try {
-      res = await this.get("/profile/user/wow", accessToken);
+      res = await this.get("/profile/user/wow", accessToken, namespace);
     } catch {
-      return { status: "error", characters: [] };
+      return result("error", 0);
     }
-    if (res.status === 404) return { status: "empty", characters: [] };
-    if (res.status === 401 || res.status === 403) return { status: "forbidden", characters: [] };
-    if (!res.ok) return { status: "error", characters: [] };
-    let characters: BattlenetCharacterSnapshot[];
+    if (res.status === 404) return result("empty", 404);
+    if (res.status === 401 || res.status === 403) return result("forbidden", res.status);
+    if (!res.ok) return result("error", res.status);
     try {
-      characters = parseAccountCharacters(await res.json());
+      const entries = parseAccountEntries(await res.json());
+      return result(entries.length > 0 ? "ok" : "empty", res.status, entries);
     } catch {
-      return { status: "error", characters: [] };
+      return result("error", res.status);
     }
-    if (characters.length === 0) return { status: "empty", characters: [] };
+  }
+
+  /**
+   * Reads every scan namespace and keeps the WoW: Forever characters (see `isForeverCharacter`). The rest are
+   * summarised by game and faction in `scan`, so an empty result can say what the account does have. The status
+   * follows the Forever namespace, except that "forbidden" needs every namespace refused: a 403 on the Forever
+   * namespace alone means Blizzard doesn't serve it (yet), not that access was denied.
+   */
+  async getAccountCharacters(accessToken: string): Promise<CharacterListResult> {
+    const forever = { namespace: this.config.profileNamespace, realmSlugs: this.config.realmSlugs };
+    const namespaces = [...new Set([forever.namespace, ...this.config.scanNamespaces])];
+    const reads = await Promise.all(namespaces.map((ns) => this.readNamespace(ns, accessToken)));
+
+    const characters: BattlenetCharacterSnapshot[] = [];
+    const excluded = new Map<string, BattlenetExcludedGroup>();
+    for (const read of reads) {
+      for (const entry of read.entries) {
+        if (isForeverCharacter({ namespace: read.namespace, realmSlug: entry.realmSlug }, forever)) {
+          const snapshot = toSnapshot(entry);
+          if (snapshot) characters.push(snapshot);
+          continue;
+        }
+        const version = knownGameVersion(read.namespace, entry.realmSlug);
+        const key = `${version}:${entry.faction ?? "none"}`;
+        const group = excluded.get(key) ?? { version, faction: entry.faction, count: 0, examples: [] };
+        group.count++;
+        if (group.examples.length < MAX_EXCLUDED_EXAMPLES) group.examples.push({ name: entry.name, realmName: entry.realmName });
+        excluded.set(key, group);
+      }
+    }
+    const scan: BattlenetScan = {
+      foreverNamespace: forever.namespace,
+      namespaces: reads.map(({ entries: _entries, ...n }) => n),
+      excluded: [...excluded.values()].sort((a, b) => b.count - a.count),
+    };
+
+    const foreverRead = reads.find((r) => r.namespace === forever.namespace);
+    if (characters.length === 0) {
+      const status: SnapshotStatus = reads.every((r) => r.status === "forbidden")
+        ? "forbidden"
+        : foreverRead?.status === "error"
+          ? "error"
+          : "empty";
+      return { status, characters, scan };
+    }
 
     // The account list has no guild (or surname); the character profile does. Best effort only.
     await Promise.all(
@@ -333,7 +428,7 @@ export class BlizzardClient {
         }
       }),
     );
-    return { status: "ok", characters };
+    return { status: "ok", characters, scan };
   }
 
   /** A public character profile. Null when it doesn't exist, isn't public, or the request fails. */

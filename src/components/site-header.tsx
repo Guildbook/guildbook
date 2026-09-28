@@ -30,14 +30,27 @@ export function SiteHeader({ guild, viewer }: { guild: Guild; viewer: Viewer }) 
     </Link>
   );
 
+  const missingMain = viewer.membershipStatus === "active" && !viewer.main;
   const desktopAccount = viewer.user ? (
     <DropdownMenu
       label="Account"
+      description={missingMain ? "No main character yet" : undefined}
       className="relative"
       summaryClassName="flex items-center gap-2 rounded border border-transparent px-2 py-1 hover:border-line"
       summary={
         <>
-          {viewer.rank && <RankInsignia insignia={insigniaFor(viewer.rank)} tier={viewer.rank.tier} size={28} className="shrink-0" />}
+          {(viewer.rank || missingMain) && (
+            <span className="relative shrink-0">
+              {viewer.rank && <RankInsignia insignia={insigniaFor(viewer.rank)} tier={viewer.rank.tier} size={28} className="block" />}
+              {missingMain && (
+                <span
+                  aria-hidden
+                  data-testid="missing-main-dot"
+                  className={`${viewer.rank ? "absolute -top-0.5 -right-0.5" : "block"} size-2.5 rounded-full bg-crimson-bright ring-2 ring-ink`}
+                />
+              )}
+            </span>
+          )}
           <span className="flex flex-col text-sm leading-tight whitespace-nowrap">
             <span className="text-bone">{accountName(viewer)}</span>
             {viewer.rank && <span className="text-xs text-gold">{viewer.rank.name}</span>}

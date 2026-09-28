@@ -39,6 +39,23 @@ export const MOCK_CHARACTERS: readonly MockCharacter[] = [
   { name: "Mortis", level: 58, currentLevel: 58, classId: 6, className: "Death Knight", raceId: 1, race: "Human", faction: "ALLIANCE", realm: CRUSADERS_REACH, guild: null },
 ];
 
+const DREAMSCYTHE: MockRealm = { id: 6225, slug: "dreamscythe", name: "Dreamscythe" };
+
+/** On a Classic Anniversary realm, served from `profile-classicann-*`: listed on the account but never importable. */
+export const MOCK_ANNIVERSARY_CHARACTER: MockCharacter = {
+  name: "Elowen",
+  level: 24,
+  currentLevel: 24,
+  classId: 8,
+  className: "Mage",
+  raceId: 7,
+  race: "Gnome",
+  faction: "ALLIANCE",
+  realm: DREAMSCYTHE,
+  guild: null,
+};
+const ANNIVERSARY_INDEX = 90;
+
 function hashNumber(seed: string, digits: number): number {
   return parseInt(createHash("sha256").update(seed).digest("hex").slice(0, 12), 16) % 10 ** digits;
 }
@@ -82,7 +99,11 @@ function characterJson(seed: string, c: MockCharacter, index: number) {
   };
 }
 
-export function createMockFetch(): FetchLike {
+/**
+ * The fixture characters live in `foreverNamespace` (the configured profile namespace); one Anniversary character
+ * lives in `profile-classicann-*`; every other namespace answers 404, as Blizzard does for a game with no characters.
+ */
+export function createMockFetch(foreverNamespace = "profile-classic1x-us"): FetchLike {
   return async (url, init) => {
     const u = new URL(url);
     const path = u.pathname;
@@ -105,6 +126,12 @@ export function createMockFetch(): FetchLike {
     if (path === "/profile/user/wow") {
       const seed = userSeed(token);
       if (!seed) return json({}, 401);
+      const namespace = u.searchParams.get("namespace") ?? "";
+      if (namespace.startsWith("profile-classicann-") && namespace !== foreverNamespace) {
+        const characters = [characterJson(seed, MOCK_ANNIVERSARY_CHARACTER, ANNIVERSARY_INDEX)];
+        return json({ id: Number(mockAccountId(seed)), wow_accounts: [{ id: 2, characters }] });
+      }
+      if (namespace !== foreverNamespace) return json({ code: 404, detail: "Not Found" }, 404);
       const characters = MOCK_CHARACTERS.map((c, i) => {
         registry.set(key(c.realm.slug, c.name), mockCharacterId(seed, i));
         return characterJson(seed, c, i);

@@ -29,16 +29,28 @@ const orderGuild = {
 };
 const standardGuild = { ...orderGuild, slug: "silver-dawn", name: "Silver Dawn", themeBase: "tome" as const };
 
+/** On-page crests prefix their gradient ids per instance; drop the prefix to compare with the baseline's fixed ids. */
+const CREST_ID = /(id="|url\(#)crest-[A-Za-z0-9_-]+?-(gold|white|field|fold)(?=[")])/g;
+const withBaselineIds = (html: string) => html.replace(CREST_ID, "$1crest-$2");
+
 describe("the Order of Saint Michael's look is unchanged", () => {
   it("renders the crest byte for byte as before, at every detail level", () => {
-    expect(renderToStaticMarkup(createElement(Crest, {}))).toBe(BASELINE.crest);
+    expect(withBaselineIds(renderToStaticMarkup(createElement(Crest, {})))).toBe(BASELINE.crest);
     expect(renderToStaticMarkup(createElement(CrestArt, { detail: "full", width: 100, height: 120 }))).toBe(BASELINE.full);
     expect(renderToStaticMarkup(createElement(CrestArt, { detail: "mark", width: 40, height: 48 }))).toBe(BASELINE.mark);
     expect(renderToStaticMarkup(createElement(CrestArt, { detail: "tiny", width: 16, height: 19.2 }))).toBe(BASELINE.tiny);
   });
 
   it("shows the locked crest (not the generic renderer) even though its tabard is stored", () => {
-    expect(renderToStaticMarkup(createElement(GuildEmblem, { guild: orderGuild }))).toBe(BASELINE.crest);
+    expect(withBaselineIds(renderToStaticMarkup(createElement(GuildEmblem, { guild: orderGuild })))).toBe(BASELINE.crest);
+  });
+
+  it("gives each crest on a page its own gradient ids, so a hidden copy can't blank the others", () => {
+    const html = renderToStaticMarkup(createElement("div", {}, createElement(Crest, {}), createElement(Crest, {})));
+    const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toHaveLength(8);
+    expect(new Set(ids).size).toBe(8);
+    for (const [, ref] of html.matchAll(/url\(#([^)]+)\)/g)) expect(ids).toContain(ref);
   });
 
   it("injects no theme CSS, so globals.css stays exactly as written", () => {

@@ -4,17 +4,26 @@ export type Region = (typeof REGIONS)[number];
 export interface BlizzardConfig {
   region: Region;
   /**
-   * Profile API namespace. The one WoW: Forever uses is unknown until launch: likely `profile-classic1x-us`
-   * (Classic Era), possibly `profile-classic-us` or retail `profile-us`. `{region}` is substituted.
+   * Profile API namespace WoW: Forever characters are read from. Blizzard hasn't published one yet: likely
+   * `profile-classic1x-us` (shared with Classic Era), possibly `profile-classic-us`. `{region}` is substituted.
+   * Characters here on a known pre-Forever realm are never treated as Forever characters (see `isForeverCharacter`).
    */
   profileNamespace: string;
+  /**
+   * Every profile namespace read when linking, so an account without Forever characters can be told what it does
+   * have. Always includes `profileNamespace`.
+   */
+  scanNamespaces: string[];
   /**
    * Game Data namespace for item names and icons. Classic Era uses `static-classic1x-{region}`; WoW: Forever's is
    * unknown until launch. Item data is only a gap-filler behind imports and the addon.
    */
   staticNamespace: string;
   locale: string;
-  /** Only characters on these realm slugs are offered. Empty means any realm. */
+  /**
+   * WoW: Forever realm slugs. When set, only characters on these realms (in `profileNamespace`) count as Forever
+   * characters, even realms otherwise known as Classic ones. Empty means any realm that isn't a known Classic one.
+   */
   realmSlugs: string[];
   /** In-game guild used for one-request roster syncs, when both are set. */
   guildRealmSlug: string | null;
@@ -27,6 +36,12 @@ export interface BlizzardConfig {
 
 const DEFAULT_NAMESPACE = "profile-classic1x-{region}";
 const DEFAULT_STATIC_NAMESPACE = "static-classic1x-{region}";
+const DEFAULT_SCAN_NAMESPACES = [
+  "profile-classic1x-{region}",
+  "profile-classicann-{region}",
+  "profile-classic-{region}",
+  "profile-{region}",
+];
 
 function list(value: string | undefined): string[] {
   return (value ?? "")
@@ -42,9 +57,14 @@ export function blizzardConfigFromEnv(env: Record<string, string | undefined> = 
   if (mock && env.VERCEL_ENV === "production") {
     throw new Error("BATTLENET_MOCK must never be enabled in production.");
   }
+  const profileNamespace = (env.BATTLENET_PROFILE_NAMESPACE?.trim() || DEFAULT_NAMESPACE).replaceAll("{region}", region);
+  const scan = list(env.BATTLENET_SCAN_NAMESPACES);
   return {
     region,
-    profileNamespace: (env.BATTLENET_PROFILE_NAMESPACE?.trim() || DEFAULT_NAMESPACE).replaceAll("{region}", region),
+    profileNamespace,
+    scanNamespaces: [
+      ...new Set([profileNamespace, ...(scan.length > 0 ? scan : DEFAULT_SCAN_NAMESPACES).map((ns) => ns.replaceAll("{region}", region))]),
+    ],
     staticNamespace: (env.BATTLENET_STATIC_NAMESPACE?.trim() || DEFAULT_STATIC_NAMESPACE).replaceAll("{region}", region),
     locale: env.BATTLENET_LOCALE?.trim() || "en_US",
     realmSlugs: list(env.BATTLENET_REALMS),

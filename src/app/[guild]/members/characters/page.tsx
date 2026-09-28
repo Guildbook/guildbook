@@ -17,7 +17,7 @@ import {
 import { db } from "@/db";
 import type { BattlenetCharacterSnapshot } from "@/db/schema";
 import { formatDateTime } from "@/lib/format";
-import { CLASS_INFO, FACTION_LABELS, fullName, PROFESSION_LABELS, ROLE_LABELS, ROLES } from "@/lib/game";
+import { CLASS_INFO, fullName, PROFESSION_LABELS, ROLE_LABELS, ROLES } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { importBattlenetCharacterAction } from "@/server/actions/battlenet";
 import { archiveCharacterAction, setMainCharacterAction } from "@/server/actions/member";
@@ -148,7 +148,7 @@ export default async function CharactersPage({ params, searchParams }: PageProps
             <div className="space-y-3">
               <BattlenetAccount link={bnet.link} slug={slug} returnTo={returnTo} timezone={guild.timezone} />
               {bnet.characters.length === 0 ? (
-                <EmptySnapshotNote link={bnet.link} factionLabel={guild.faction ? FACTION_LABELS[guild.faction] : null} />
+                <EmptySnapshotNote link={bnet.link} faction={guild.faction} />
               ) : (
                 <details className="group" open={sp.bnet === "linked" || undefined}>
                   <summary className="btn btn-primary btn-sm cursor-pointer list-none">

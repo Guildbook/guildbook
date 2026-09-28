@@ -66,6 +66,17 @@ describe("linking", () => {
     expect(row).toMatchObject({ region: "us", snapshotStatus: "ok" });
     expect(row!.battletag).toMatch(/^Pilgrim#\d{4}$/);
     expect(row!.characters).toHaveLength(4);
+    // The Anniversary character is recorded as found but excluded, never offered for import.
+    expect(row!.scan).toMatchObject({
+      foreverNamespace: "profile-classic1x-us",
+      excluded: [{ version: "anniversary", faction: "alliance", count: 1, examples: [{ name: "Elowen", realmName: "Dreamscythe" }] }],
+    });
+    expect(row!.scan!.namespaces.map((n) => [n.namespace, n.httpStatus, n.characters])).toEqual([
+      ["profile-classic1x-us", 200, 5],
+      ["profile-classicann-us", 200, 1],
+      ["profile-classic-us", 404, 0],
+      ["profile-us", 404, 0],
+    ]);
     expect(row!.accessTokenEnc).not.toContain("mock-user");
     expect(decryptToken(row!.accessTokenEnc!, tokenKey)).toBe(`mock-user.${visitor.userId}`);
     expect(row!.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * 3600_000);

@@ -66,9 +66,15 @@ How it works:
 - Battle.net doesn't expose WoW: Forever surnames (as far as we know), so the surname stays editable text. If the API starts returning one, it's used and locked.
 - Link, unlink, refresh, import and sync are written to the audit log.
 
-**The profile namespace is unknown until launch.** WoW: Forever may use `profile-classic1x-us` (the default, as Classic Era does), `profile-classic-us`, or retail `profile-us`. After launch, link a test account; if no characters appear, change `BATTLENET_PROFILE_NAMESPACE` (use `{region}` as a placeholder) and redeploy. No code change is needed.
+**Which characters count as WoW: Forever.** Blizzard keeps each game's characters in its own profile namespace, and hasn't published one for Forever yet. It may be `profile-classic1x-us` (the default, shared with Classic Era, Hardcore and Season of Discovery), `profile-classic-us`, or a new one. A character is a Forever character only if it is in `BATTLENET_PROFILE_NAMESPACE` and:
+- when `BATTLENET_REALMS` is set, it is on one of those realms (an explicit list of Forever realms; it overrides the next rule);
+- otherwise, it is not on a known pre-Forever realm (Classic Era, Hardcore, Seasonal, Anniversary or progression; see `src/lib/wow-versions.ts`), and never on retail.
 
-**Mock mode.** `BATTLENET_MOCK=1` replaces Blizzard with fixture characters (Aldric, Brenna and Corwin for the Alliance, a Horde warrior and a Death Knight that are filtered out). Linking skips the Battle.net page. Playwright always runs in mock mode, and the Vitest suites inject a fake `fetch`; no test calls Blizzard. The app refuses mock mode when `VERCEL_ENV=production`.
+Linking also reads every namespace in `BATTLENET_SCAN_NAMESPACES`, so an account with no Forever characters is told what it does have, for example "2 Alliance characters in Classic Anniversary (...), but only WoW: Forever characters can be verified". Those characters are recorded (in `battlenet_links.scan`) but never offered for import. The server logs one count-only line per link or refresh (`[battlenet] link scan: profile-classic1x-us=404:0 profile-classicann-us=200:3 ... forever=0 excluded=3`). After launch, link a test account: if its Forever characters show up as "other realms", set `BATTLENET_REALMS` to the Forever realm slugs; if they don't show up at all, change `BATTLENET_PROFILE_NAMESPACE` (use `{region}` as a placeholder). No code change is needed.
+
+To test before launch with characters from another game (for example Anniversary), set `BATTLENET_PROFILE_NAMESPACE=profile-classicann-{region}` and `BATTLENET_REALMS=<realm slugs>` on a preview deployment. Those characters would import as verified, so don't do this in production.
+
+**Mock mode.** `BATTLENET_MOCK=1` replaces Blizzard with fixture characters (Aldric, Brenna and Corwin for the Alliance, a Horde warrior and a Death Knight that are filtered out) in the Forever namespace, plus an Anniversary character (Elowen, Dreamscythe) that is listed as found but excluded. Linking skips the Battle.net page. Playwright always runs in mock mode, and the Vitest suites inject a fake `fetch`; no test calls Blizzard. The app refuses mock mode when `VERCEL_ENV=production`.
 
 ## Environment variables
 
@@ -88,7 +94,9 @@ How it works:
 | `BATTLENET_CLIENT_ID` / `BATTLENET_CLIENT_SECRET` | for Battle.net | develop.battle.net client credentials. Without them (and without mock mode) the Battle.net options are hidden. |
 | `BATTLENET_REGION` | no | `us` (default), `eu`, `kr`, `tw` or `cn`. |
 | `BATTLENET_TOKEN_KEY` | for Battle.net | 32 bytes, base64. Encrypts stored access tokens. |
-| `BATTLENET_PROFILE_NAMESPACE` | no | Profile API namespace, default `profile-classic1x-{region}`. See above. |
+| `BATTLENET_PROFILE_NAMESPACE` | no | Profile API namespace WoW: Forever characters are read from, default `profile-classic1x-{region}`. See above. |
+| `BATTLENET_REALMS` | no | Comma-separated WoW: Forever realm slugs. When set, only characters on these realms can be verified. See above. |
+| `BATTLENET_SCAN_NAMESPACES` | no | Comma-separated namespaces read at link time to explain an empty result. Default `profile-classic1x-{region},profile-classicann-{region},profile-classic-{region},profile-{region}`. |
 | `BATTLENET_STATIC_NAMESPACE` | no | Game Data namespace for loot item names and icons, default `static-classic1x-{region}`. See Loot ledger. |
 | `BATTLENET_GUILD_REALM` / `BATTLENET_GUILD_SLUG` | no | In-game guild for one-request roster syncs. |
 | `BATTLENET_REDIRECT_URI` | no | Overrides `<origin>/api/battlenet/callback`. |

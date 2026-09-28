@@ -1,0 +1,1 @@
+ALTER TABLE "battlenet_links" ADD COLUMN "scan" jsonb;

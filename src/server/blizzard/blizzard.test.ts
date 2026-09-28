@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BlizzardClient, type FetchLike, parseAccountCharacters } from "./client";
+import { BlizzardClient, describeScanForLog, type FetchLike, parseAccountCharacters } from "./client";
+import anniversaryAccount from "./fixtures/profile-user-wow.classicann.json";
 import { blizzardConfigFromEnv } from "./config";
 import { decryptToken, encryptToken, tokenKeyFromEnv } from "./crypto";
 import { charactersForGuild } from "./filter";
@@ -16,6 +17,22 @@ describe("blizzardConfigFromEnv", () => {
     expect(blizzardConfigFromEnv({}).profileNamespace).toBe("profile-classic1x-us");
     const eu = blizzardConfigFromEnv({ BATTLENET_REGION: "EU", BATTLENET_PROFILE_NAMESPACE: "profile-{region}" });
     expect(eu).toMatchObject({ region: "eu", profileNamespace: "profile-eu" });
+  });
+
+  it("scans every Classic namespace and retail by default, always including the Forever namespace", () => {
+    expect(blizzardConfigFromEnv({}).scanNamespaces).toEqual([
+      "profile-classic1x-us",
+      "profile-classicann-us",
+      "profile-classic-us",
+      "profile-us",
+    ]);
+    expect(
+      blizzardConfigFromEnv({
+        BATTLENET_REGION: "eu",
+        BATTLENET_PROFILE_NAMESPACE: "profile-classicforever-{region}",
+        BATTLENET_SCAN_NAMESPACES: "profile-classicann-{region}",
+      }).scanNamespaces,
+    ).toEqual(["profile-classicforever-eu", "profile-classicann-eu"]);
   });
 
   it("parses realm filters and refuses mock mode in production", () => {
@@ -46,7 +63,7 @@ describe("BlizzardClient.getAccountCharacters", () => {
     });
   });
 
-  it("sends the configured namespace and locale", async () => {
+  it("reads the account list in the Forever namespace and every scan namespace, with the locale", async () => {
     const urls: string[] = [];
     const client = new BlizzardClient({ ...config, profileNamespace: "profile-classic-us" }, async (url) => {
       urls.push(url);
@@ -54,6 +71,12 @@ describe("BlizzardClient.getAccountCharacters", () => {
     });
     await client.getAccountCharacters("token");
     expect(urls[0]).toBe("https://us.api.blizzard.com/profile/user/wow?namespace=profile-classic-us&locale=en_US");
+    expect(urls.map((u) => new URL(u).searchParams.get("namespace"))).toEqual([
+      "profile-classic-us",
+      "profile-classic1x-us",
+      "profile-classicann-us",
+      "profile-us",
+    ]);
   });
 
   it.each([
@@ -65,7 +88,9 @@ describe("BlizzardClient.getAccountCharacters", () => {
     [500, {}, "error"],
   ] as const)("maps HTTP %i %j to %s", async (status, body, expected) => {
     const client = new BlizzardClient(config, fetchReturning(status, body));
-    expect(await client.getAccountCharacters("token")).toEqual({ status: expected, characters: [] });
+    const result = await client.getAccountCharacters("token");
+    expect(result).toMatchObject({ status: expected, characters: [], scan: { excluded: [] } });
+    expect(result.scan.namespaces.every((n) => n.httpStatus === status)).toBe(true);
   });
 
   it("reports a network failure as an error, not a crash", async () => {
@@ -93,6 +118,146 @@ describe("BlizzardClient.getAccountCharacters", () => {
       ],
     });
     expect(c).toMatchObject({ id: "7", name: "Elowen", realmName: "Silverpine", wowClass: "mage", faction: "alliance", race: "Gnome" });
+  });
+});
+
+/** A fake Blizzard answering `/profile/user/wow` per namespace; anything unlisted is a 404. */
+function fetchByNamespace(responses: Record<string, { status: number; body?: unknown }>): FetchLike {
+  return async (url) => {
+    const u = new URL(url);
+    const r = u.pathname === "/profile/user/wow" ? responses[u.searchParams.get("namespace") ?? ""] : undefined;
+    return new Response(JSON.stringify(r?.body ?? { code: 404 }), { status: r?.status ?? 404 });
+  };
+}
+
+function account(characters: { id: number; name: string; realm: string; classId?: number; raceId?: number; faction?: string }[]) {
+  return {
+    wow_accounts: [
+      {
+        id: 1,
+        characters: characters.map((c) => ({
+          id: c.id,
+          name: c.name,
+          level: 20,
+          realm: { slug: c.realm, name: c.realm },
+          playable_class: { id: c.classId ?? 1 },
+          playable_race: { id: c.raceId ?? 1 },
+          faction: { type: c.faction ?? "ALLIANCE" },
+        })),
+      },
+    ],
+  };
+}
+
+describe("BlizzardClient.getAccountCharacters across game versions", () => {
+  it("finds Classic Anniversary characters, but excludes them as not WoW: Forever", async () => {
+    const client = new BlizzardClient(
+      config,
+      fetchByNamespace({
+        "profile-classic1x-us": { status: 404 },
+        "profile-classicann-us": { status: 200, body: anniversaryAccount },
+      }),
+    );
+    const result = await client.getAccountCharacters("token");
+    expect(result.status).toBe("empty");
+    expect(result.characters).toEqual([]);
+    expect(result.scan.foreverNamespace).toBe("profile-classic1x-us");
+    expect(result.scan.namespaces).toEqual([
+      { namespace: "profile-classic1x-us", status: "empty", httpStatus: 404, characters: 0 },
+      { namespace: "profile-classicann-us", status: "ok", httpStatus: 200, characters: 3 },
+      { namespace: "profile-classic-us", status: "empty", httpStatus: 404, characters: 0 },
+      { namespace: "profile-us", status: "empty", httpStatus: 404, characters: 0 },
+    ]);
+    expect(result.scan.excluded).toEqual([
+      {
+        version: "anniversary",
+        faction: "alliance",
+        count: 2,
+        examples: [
+          { name: "Elowen", realmName: "Dreamscythe" },
+          { name: "Tamsin", realmName: "Dreamscythe" },
+        ],
+      },
+      { version: "anniversary", faction: "horde", count: 1, examples: [{ name: "Gorza", realmName: "Nightslayer" }] },
+    ]);
+    expect(describeScanForLog(result.scan, 0)).toBe(
+      "profile-classic1x-us=404:0 profile-classicann-us=200:3 profile-classic-us=404:0 profile-us=404:0 forever=0 excluded=3",
+    );
+  });
+
+  it("never treats Classic Era, Hardcore or Season of Discovery characters in the Forever namespace as Forever", async () => {
+    const client = new BlizzardClient(
+      config,
+      fetchByNamespace({
+        "profile-classic1x-us": {
+          status: 200,
+          body: account([
+            { id: 1, name: "Eraone", realm: "whitemane" },
+            { id: 2, name: "Hcone", realm: "skull-rock" },
+            { id: 3, name: "Sodone", realm: "crusader-strike", raceId: 2, faction: "HORDE" },
+            { id: 4, name: "Newone", realm: "brand-new-forever-realm" },
+          ]),
+        },
+      }),
+    );
+    const result = await client.getAccountCharacters("token");
+    expect(result.status).toBe("ok");
+    expect(result.characters.map((c) => c.name)).toEqual(["Newone"]);
+    expect(result.scan.excluded.map((g) => [g.version, g.faction, g.count])).toEqual([
+      ["era", "alliance", 1],
+      ["hardcore", "alliance", 1],
+      ["seasonal", "horde", 1],
+    ]);
+  });
+
+  it("with a Forever realm allowlist, takes exactly those realms, even known Classic ones (pre-launch testing)", async () => {
+    const client = new BlizzardClient(
+      { ...config, profileNamespace: "profile-classicann-us", realmSlugs: ["dreamscythe"] },
+      fetchByNamespace({ "profile-classicann-us": { status: 200, body: anniversaryAccount } }),
+    );
+    const result = await client.getAccountCharacters("token");
+    expect(result.characters.map((c) => c.name)).toEqual(["Elowen", "Tamsin"]);
+    expect(result.scan.excluded).toMatchObject([{ version: "anniversary", faction: "horde", count: 1 }]);
+  });
+
+  it("counts retail characters, including classes Forever lacks, without importing them", async () => {
+    const client = new BlizzardClient(
+      config,
+      fetchByNamespace({
+        "profile-us": { status: 200, body: account([{ id: 9, name: "Deathy", realm: "area-52", classId: 6 }]) },
+      }),
+    );
+    const result = await client.getAccountCharacters("token");
+    expect(result.characters).toEqual([]);
+    expect(result.scan.excluded).toMatchObject([{ version: "retail", faction: "alliance", count: 1 }]);
+  });
+
+  it("treats a 403 on the Forever namespace alone as an unserved namespace, not a refused grant", async () => {
+    const client = new BlizzardClient(
+      { ...config, profileNamespace: "profile-classicforever-us" },
+      fetchByNamespace({ "profile-classicforever-us": { status: 403 } }),
+    );
+    expect((await client.getAccountCharacters("token")).status).toBe("empty");
+  });
+
+  it("reports an error only when the Forever namespace fails", async () => {
+    const failsElsewhere = new BlizzardClient(config, fetchByNamespace({ "profile-us": { status: 503 } }));
+    const elsewhere = await failsElsewhere.getAccountCharacters("token");
+    expect(elsewhere.status).toBe("empty");
+    expect(elsewhere.scan.namespaces.find((n) => n.namespace === "profile-us")).toMatchObject({ status: "error", httpStatus: 503 });
+
+    const failsForever = new BlizzardClient(config, fetchByNamespace({ "profile-classic1x-us": { status: 503 } }));
+    expect((await failsForever.getAccountCharacters("token")).status).toBe("error");
+  });
+
+  it("mock mode serves the fixtures in the Forever namespace and an Anniversary character that is excluded", async () => {
+    const client = new BlizzardClient({ ...config, mock: true }, createMockFetch("profile-classic1x-us"));
+    const { accessToken } = await client.exchangeCode("mock-scan", "http://localhost/cb");
+    const result = await client.getAccountCharacters(accessToken);
+    expect(result.characters.map((c) => c.name)).toEqual(["Aldric", "Brenna", "Corwin", "Grukk"]);
+    expect(result.scan.excluded).toEqual([
+      { version: "anniversary", faction: "alliance", count: 1, examples: [{ name: "Elowen", realmName: "Dreamscythe" }] },
+    ]);
   });
 });
 

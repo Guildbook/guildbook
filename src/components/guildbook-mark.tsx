@@ -1,10 +1,16 @@
+"use client";
+
+// Must stay a client component: server `useId` values restart with each RSC request, so a mark rendered on
+// navigation could reuse the gradient ID of one already on the page (see rank-insignia.tsx).
 import clsx from "clsx";
+import { useId } from "react";
 
 /**
  * The Guildbook mark: an open gold book with a crimson ribbon. Deliberately unlike the Order's tabard crest,
  * which stays that guild's own emblem. `pnpm brand:assets` rasterizes this for the apex favicon and previews.
+ * `gradientId` must be unique on the page when several marks share it.
  */
-export function GuildbookMarkArt({ size, title = "Guildbook" }: { size?: number; title?: string | null }) {
+export function GuildbookMarkArt({ size, title = "Guildbook", gradientId = "gbm-page" }: { size?: number; title?: string | null; gradientId?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -16,13 +22,13 @@ export function GuildbookMarkArt({ size, title = "Guildbook" }: { size?: number;
       aria-hidden={title ? undefined : true}
     >
       <defs>
-        <linearGradient id="gbm-page" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#f2dc98" />
           <stop offset="1" stopColor="#c9a44c" />
         </linearGradient>
       </defs>
-      <path d="M5 15 C15 10 25 11 31 16 V52 C25 47 15 46 5 51 Z" fill="url(#gbm-page)" stroke="#8a7036" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M59 15 C49 10 39 11 33 16 V52 C39 47 49 46 59 51 Z" fill="url(#gbm-page)" stroke="#8a7036" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M5 15 C15 10 25 11 31 16 V52 C25 47 15 46 5 51 Z" fill={`url(#${gradientId})`} stroke="#8a7036" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M59 15 C49 10 39 11 33 16 V52 C39 47 49 46 59 51 Z" fill={`url(#${gradientId})`} stroke="#8a7036" strokeWidth="1.5" strokeLinejoin="round" />
       <g stroke="#2b1d12" strokeOpacity="0.45" strokeWidth="1.6" strokeLinecap="round" fill="none">
         <path d="M11 23 C16 21 21 21 26 23" />
         <path d="M11 30 C16 28 21 28 26 30" />
@@ -36,10 +42,11 @@ export function GuildbookMarkArt({ size, title = "Guildbook" }: { size?: number;
 }
 
 export function GuildbookMark({ className = "h-8 w-8" }: { className?: string }) {
+  const gradientId = `gbm-page-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <span className={clsx("inline-block", className)}>
       <span className="block h-full w-full [&>svg]:h-full [&>svg]:w-full">
-        <GuildbookMarkArt title={null} />
+        <GuildbookMarkArt title={null} gradientId={gradientId} />
       </span>
     </span>
   );

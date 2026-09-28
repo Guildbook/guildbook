@@ -1,6 +1,8 @@
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
 import { StatusToast } from "@/components/status-toast";
+import { emptySnapshotMessage } from "@/lib/battlenet-empty-state";
 import { formatDateTime } from "@/lib/format";
+import type { Faction } from "@/lib/game";
 import { refreshBattlenetAction, unlinkBattlenetAction } from "@/server/actions/battlenet";
 import type { BattlenetLink } from "@/server/services/battlenet";
 
@@ -96,14 +98,19 @@ export function BattlenetAccount({
   );
 }
 
-/** Why a linked account offers no characters. */
-export function EmptySnapshotNote({ link, factionLabel }: { link: BattlenetLink; factionLabel: string | null }) {
-  const who = factionLabel ? `${factionLabel} characters` : "characters";
-  const text =
-    link.snapshotStatus === "forbidden"
-      ? "Battle.net didn't share your character list. Reconnect and allow access to your World of Warcraft profile."
-      : link.snapshotStatus === "error"
-        ? "Battle.net didn't respond when we read your characters. Try refreshing or reconnecting later."
-        : `We found no eligible ${who} on ${link.battletag}. Before World of Warcraft: Forever launches on Nov 4, 2026, that's expected.`;
-  return <p className="text-sm text-muted">{text}</p>;
+/** Why a linked account offers no characters, and what it has instead. */
+export function EmptySnapshotNote({ link, faction }: { link: BattlenetLink; faction: Faction | null }) {
+  const text = emptySnapshotMessage({
+    battletag: link.battletag,
+    status: link.snapshotStatus,
+    scan: link.scan,
+    foreverCharacters: link.characters,
+    guildFaction: faction,
+    now: new Date(),
+  });
+  return (
+    <p className="text-sm text-muted" data-testid="battlenet-empty">
+      {text}
+    </p>
+  );
 }

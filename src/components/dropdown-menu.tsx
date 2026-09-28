@@ -1,23 +1,27 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 
 /** Disclosure menu that closes on outside click, Escape, or navigation. */
 export function DropdownMenu({
   label,
+  description,
   summary,
   summaryClassName = "btn btn-ghost btn-sm",
   className,
   children,
 }: {
   label: string;
+  /** Announced after the label, for state the summary only shows visually. */
+  description?: string;
   summary: ReactNode;
   summaryClassName?: string;
   className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
+  const descriptionId = useId();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -47,8 +51,17 @@ export function DropdownMenu({
 
   return (
     <details ref={ref} className={className}>
-      <summary className={`${summaryClassName} cursor-pointer list-none [&::-webkit-details-marker]:hidden`} aria-label={label}>
+      <summary
+        className={`${summaryClassName} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}
+        aria-label={label}
+        aria-describedby={description ? descriptionId : undefined}
+      >
         {summary}
+        {description && (
+          <span id={descriptionId} className="sr-only">
+            {description}
+          </span>
+        )}
       </summary>
       {children}
     </details>

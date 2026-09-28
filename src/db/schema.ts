@@ -23,6 +23,7 @@ import { RANK_TIERS } from "@/lib/authz/tiers";
 import { THEME_BASES, type ThemeOverrides } from "@/lib/tabard/theme";
 import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/constants";
 import type { ParsedAward } from "@/lib/loot/types";
+import type { GameVersion } from "@/lib/wow-versions";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -125,9 +126,34 @@ export const battlenetLinks = pgTable("battlenet_links", {
   characters: jsonb("characters").$type<BattlenetCharacterSnapshot[]>().notNull().default([]),
   /** "ok" | "empty" | "forbidden" | "error": why the snapshot may be empty. */
   snapshotStatus: text("snapshot_status").notNull().default("ok"),
+  /** What each namespace returned and the non-Forever characters left out, to explain an empty snapshot. */
+  scan: jsonb("scan").$type<BattlenetScan>(),
   snapshotAt: timestamp("snapshot_at", { withTimezone: true }).notNull().defaultNow(),
   linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export interface BattlenetNamespaceScan {
+  namespace: string;
+  status: "ok" | "empty" | "forbidden" | "error";
+  httpStatus: number;
+  /** Characters the namespace listed, before any filtering. */
+  characters: number;
+}
+
+/** Characters found on the account that aren't WoW: Forever characters, grouped by game and faction. */
+export interface BattlenetExcludedGroup {
+  version: GameVersion;
+  faction: (typeof FACTIONS)[number] | null;
+  count: number;
+  /** A few of them, shown to the account owner only. */
+  examples: { name: string; realmName: string }[];
+}
+
+export interface BattlenetScan {
+  foreverNamespace: string;
+  namespaces: BattlenetNamespaceScan[];
+  excluded: BattlenetExcludedGroup[];
+}
 
 export interface BattlenetCharacterSnapshot {
   id: string;

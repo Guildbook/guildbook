@@ -91,7 +91,16 @@ function GuildRow({ guild, href }: { guild: UserGuild; href: (path?: string) => 
                   </span>
                 </span>
               ) : (
-                <span className="truncate text-muted">No main character yet</span>
+                <a
+                  href={href("/members/characters")}
+                  className="relative z-10 inline-flex min-w-0 items-center gap-1 text-gold underline-offset-2 hover:text-gold-bright hover:underline focus-visible:underline focus-visible:outline-none"
+                  aria-label={`Add your main character in ${guild.name}`}
+                >
+                  <svg viewBox="0 0 16 16" width={10} height={10} aria-hidden className="shrink-0">
+                    <path d={ICONS.create} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+                  </svg>
+                  <span className="truncate">Add your main character</span>
+                </a>
               )}
             </p>
             <div className="mt-1 flex items-center justify-between gap-2">

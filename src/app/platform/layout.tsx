@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { GitHubIcon } from "@/components/github-icon";
 import { GuildbookWordmark } from "@/components/guildbook-mark";
+import { XIcon } from "@/components/x-icon";
 import { db } from "@/db";
-import { brandIcons, brandPreviewImage, GUILDBOOK_DESCRIPTION, SOURCE_URL } from "@/lib/brand";
+import { brandIcons, brandPreviewImage, GUILDBOOK_DESCRIPTION, SOURCE_URL, X_URL } from "@/lib/brand";
 import { getSessionUser } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { listUserGuilds } from "@/server/services/platform";
@@ -81,6 +82,16 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
             >
               <GitHubIcon size={13} />
               Source
+            </a>
+            <a
+              href={X_URL}
+              aria-label="Guildbook on X"
+              className="inline-flex items-center gap-1.5 text-bone/70 hover:text-gold"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <XIcon size={12} />
+              @GuildbookIO
             </a>
           </nav>
         </div>

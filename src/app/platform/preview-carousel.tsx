@@ -25,7 +25,7 @@ const useReducedMotion = () =>
   useSyncExternalStore(subscribeReducedMotion, () => window.matchMedia(REDUCED_MOTION).matches, () => false);
 
 /**
- * Cycles the home page's guild site preview through a few guild themes, crossfading every few seconds. Rotation
+ * Cycles the home page's guild site preview through a few guild themes, fading between them every few seconds. Rotation
  * pauses while the pointer or focus is inside, stops once a visitor picks a theme or presses pause, and never
  * starts when the visitor prefers reduced motion.
  */
@@ -85,8 +85,10 @@ export function PreviewCarousel({ sites }: { sites: CarouselSite[] }) {
               key={site.key}
               inert={i !== active}
               className={clsx(
-                "col-start-1 row-start-1 transition-opacity duration-700 ease-in-out motion-reduce:transition-none",
-                i === active ? "opacity-100" : "pointer-events-none opacity-0",
+                "col-start-1 row-start-1 transition-opacity motion-reduce:transition-none",
+                // Sequenced rather than crossfaded: the outgoing frame is gone before the incoming one starts, so the
+                // two sites' text never overlaps. The delay must be at least the fade-out duration.
+                i === active ? "opacity-100 delay-200 duration-400 ease-out" : "pointer-events-none opacity-0 duration-200 ease-in",
               )}
             >
               {site.frame}

@@ -1,12 +1,12 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
-import { type BattlenetCharacterSnapshot, battlenetLinks, characters, guilds, memberships } from "@/db/schema";
+import { type BattlenetCharacterSnapshot, type BattlenetScan, battlenetLinks, characters, guilds, memberships } from "@/db/schema";
 import { type Actor, assertCan } from "@/lib/authz/policy";
 import { CLASS_INFO, fullName, isValidSpec } from "@/lib/game";
 import { importCharacterInput } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
-import type { BlizzardClient, RosterMember } from "@/server/blizzard/client";
+import { type BlizzardClient, describeScanForLog, type RosterMember } from "@/server/blizzard/client";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard/config";
 import { decryptToken, encryptToken } from "@/server/blizzard/crypto";
 import { charactersForGuild } from "@/server/blizzard/filter";
@@ -27,6 +27,14 @@ export interface Eligibility {
 
 export function defaultEligibility(): Eligibility {
   return { realmSlugs: blizzardConfigFromEnv().realmSlugs };
+}
+
+/** Counts only, for the audit log: no character names. */
+function scanCounts(scan: BattlenetScan) {
+  return {
+    namespaces: scan.namespaces.map((n) => ({ namespace: n.namespace, http: n.httpStatus, characters: n.characters })),
+    excluded: scan.excluded.map((g) => ({ version: g.version, faction: g.faction, count: g.count })),
+  };
 }
 
 /** Refreshing needs a minute of token life left; Blizzard tokens last about 24 hours and can't be renewed. */
@@ -55,6 +63,7 @@ export async function linkBattlenetAccount(db: Db, actor: Actor, raw: unknown, d
   const token = await client.exchangeCode(code, redirectUri);
   const account = await client.getUserInfo(token.accessToken);
   const snapshot = await client.getAccountCharacters(token.accessToken);
+  console.info(`[battlenet] link scan: ${describeScanForLog(snapshot.scan, snapshot.characters.length)}`);
 
   try {
     return await db.transaction(async (tx) => {
@@ -73,6 +82,7 @@ export async function linkBattlenetAccount(db: Db, actor: Actor, raw: unknown, d
         tokenExpiresAt: token.expiresAt,
         characters: snapshot.characters,
         snapshotStatus: snapshot.status,
+        scan: snapshot.scan,
         snapshotAt: now,
         linkedAt: now,
       };
@@ -85,7 +95,7 @@ export async function linkBattlenetAccount(db: Db, actor: Actor, raw: unknown, d
         action: "battlenet.link",
         targetType: "user",
         targetId: actor.userId,
-        after: { characters: snapshot.characters.length, status: snapshot.status },
+        after: { characters: snapshot.characters.length, status: snapshot.status, ...scanCounts(snapshot.scan) },
       });
       return { ...link!, characterCount: snapshot.characters.length };
     });
@@ -107,6 +117,7 @@ export async function refreshBattlenetSnapshot(db: Db, actor: Actor, deps: Battl
     throw new DomainError("Your Battle.net authorization has expired. Reconnect Battle.net to refresh your characters.");
   }
   const snapshot = await deps.client.getAccountCharacters(decryptToken(row.accessTokenEnc!, deps.tokenKey));
+  console.info(`[battlenet] refresh scan: ${describeScanForLog(snapshot.scan, snapshot.characters.length)}`);
   if (snapshot.status === "forbidden") {
     await db.update(battlenetLinks).set({ accessTokenEnc: null, tokenExpiresAt: null }).where(eq(battlenetLinks.userId, actor.userId));
     throw new DomainError("Battle.net refused the request. Reconnect Battle.net to refresh your characters.");
@@ -116,14 +127,14 @@ export async function refreshBattlenetSnapshot(db: Db, actor: Actor, deps: Battl
   await db.transaction(async (tx) => {
     await tx
       .update(battlenetLinks)
-      .set({ characters: snapshot.characters, snapshotStatus: snapshot.status, snapshotAt: new Date() })
+      .set({ characters: snapshot.characters, snapshotStatus: snapshot.status, scan: snapshot.scan, snapshotAt: new Date() })
       .where(eq(battlenetLinks.userId, actor.userId));
     await recordAudit(tx, actor, {
       action: "battlenet.refresh",
       targetType: "user",
       targetId: actor.userId,
       before: { characters: row.characters.length },
-      after: { characters: snapshot.characters.length, status: snapshot.status },
+      after: { characters: snapshot.characters.length, status: snapshot.status, ...scanCounts(snapshot.scan) },
     });
   });
   return snapshot;

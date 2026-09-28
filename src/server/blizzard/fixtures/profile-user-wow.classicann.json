@@ -1,0 +1,57 @@
+{
+  "_links": {
+    "self": { "href": "https://us.api.blizzard.com/profile/user/wow?namespace=profile-classicann-us" },
+    "user": { "href": "https://us.api.blizzard.com/profile/user?namespace=profile-classicann-us" },
+    "profile": { "href": "https://us.api.blizzard.com/profile/user/wow/protected-character?namespace=profile-classicann-us" }
+  },
+  "id": 424242,
+  "wow_accounts": [
+    {
+      "id": 1,
+      "characters": [
+        {
+          "character": { "href": "https://us.api.blizzard.com/profile/wow/character/dreamscythe/elowen?namespace=profile-classicann-us" },
+          "protected_character": { "href": "https://us.api.blizzard.com/profile/user/wow/protected-character/6225-1001?namespace=profile-classicann-us" },
+          "name": "Elowen",
+          "id": 1001,
+          "realm": { "key": { "href": "https://us.api.blizzard.com/data/wow/realm/6225?namespace=dynamic-classicann-us" }, "name": "Dreamscythe", "id": 6225, "slug": "dreamscythe" },
+          "playable_class": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-class/8?namespace=static-classicann-us" }, "name": "Mage", "id": 8 },
+          "playable_race": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-race/7?namespace=static-classicann-us" }, "name": "Gnome", "id": 7 },
+          "gender": { "type": "FEMALE", "name": "Female" },
+          "faction": { "type": "ALLIANCE", "name": "Alliance" },
+          "level": 24
+        },
+        {
+          "character": { "href": "https://us.api.blizzard.com/profile/wow/character/dreamscythe/tamsin?namespace=profile-classicann-us" },
+          "protected_character": { "href": "https://us.api.blizzard.com/profile/user/wow/protected-character/6225-1002?namespace=profile-classicann-us" },
+          "name": "Tamsin",
+          "id": 1002,
+          "realm": { "key": { "href": "https://us.api.blizzard.com/data/wow/realm/6225?namespace=dynamic-classicann-us" }, "name": "Dreamscythe", "id": 6225, "slug": "dreamscythe" },
+          "playable_class": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-class/2?namespace=static-classicann-us" }, "name": "Paladin", "id": 2 },
+          "playable_race": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-race/3?namespace=static-classicann-us" }, "name": "Dwarf", "id": 3 },
+          "gender": { "type": "MALE", "name": "Male" },
+          "faction": { "type": "ALLIANCE", "name": "Alliance" },
+          "level": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "characters": [
+        {
+          "character": { "href": "https://us.api.blizzard.com/profile/wow/character/nightslayer/gorza?namespace=profile-classicann-us" },
+          "protected_character": { "href": "https://us.api.blizzard.com/profile/user/wow/protected-character/6226-2001?namespace=profile-classicann-us" },
+          "name": "Gorza",
+          "id": 2001,
+          "realm": { "key": { "href": "https://us.api.blizzard.com/data/wow/realm/6226?namespace=dynamic-classicann-us" }, "name": "Nightslayer", "id": 6226, "slug": "nightslayer" },
+          "playable_class": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-class/9?namespace=static-classicann-us" }, "name": "Warlock", "id": 9 },
+          "playable_race": { "key": { "href": "https://us.api.blizzard.com/data/wow/playable-race/2?namespace=static-classicann-us" }, "name": "Orc", "id": 2 },
+          "gender": { "type": "FEMALE", "name": "Female" },
+          "faction": { "type": "HORDE", "name": "Horde" },
+          "level": 11
+        }
+      ]
+    }
+  ],
+  "collections": { "href": "https://us.api.blizzard.com/profile/user/wow/collections?namespace=profile-classicann-us" }
+}

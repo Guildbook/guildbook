@@ -1,10 +1,11 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import { RankInsignia } from "@/components/rank-insignia";
 import { VerifiedMark } from "@/components/ui";
 import { CLASS_INFO, fullName } from "@/lib/game";
 import { insigniaFor } from "@/lib/insignia";
 import { characterHref, guildHref } from "@/lib/paths";
+import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
 import type { Viewer } from "@/server/context";
 import { signOutAction } from "@/server/actions/member";
 
@@ -21,6 +22,7 @@ export function AccountCard({ viewer, guildSlug }: { viewer: Viewer; guildSlug: 
   const name = <p className="truncate font-display text-base tracking-wide text-bone">{accountName(viewer)}</p>;
 
   let identity;
+  let action: ReactNode = null;
   if (main) {
     identity = (
       <Link href={characterHref(guildSlug, main.id)} className="group block space-y-0.5">
@@ -37,14 +39,8 @@ export function AccountCard({ viewer, guildSlug }: { viewer: Viewer; guildSlug: 
       </Link>
     );
   } else if (viewer.membershipStatus === "active") {
-    identity = (
-      <>
-        {name}
-        <Link href={h("/members/characters")} className="text-xs text-gold underline-offset-2 hover:underline">
-          Add your main character
-        </Link>
-      </>
-    );
+    identity = name;
+    action = <AddMainCharacterLink href={h("/members/characters")} />;
   } else if (viewer.membershipStatus === "applicant") {
     identity = (
       <>
@@ -64,13 +60,44 @@ export function AccountCard({ viewer, guildSlug }: { viewer: Viewer; guildSlug: 
   }
 
   return (
-    <div data-testid="account-card" className="flex items-center gap-3 px-1 py-1">
-      {rank && <RankInsignia insignia={insigniaFor(rank)} tier={rank.tier} size={44} className="shrink-0" />}
-      <div className="min-w-0 space-y-0.5 leading-tight">
-        {identity}
-        {rank && <p className="text-xs tracking-wider text-gold uppercase">{rank.name}</p>}
+    <div data-testid="account-card" className="space-y-3 px-1 py-1">
+      <div className="flex items-center gap-3">
+        {rank && <RankInsignia insignia={insigniaFor(rank)} tier={rank.tier} size={44} className="shrink-0" />}
+        <div className="min-w-0 space-y-0.5 leading-tight">
+          {identity}
+          {rank && <p className="text-xs tracking-wider text-gold uppercase">{rank.name}</p>}
+        </div>
       </div>
+      {action}
     </div>
+  );
+}
+
+/** Call to action for an active member without a main character; the characters page offers Battle.net import and manual registration. */
+function AddMainCharacterLink({ href }: { href: string }) {
+  const helperId = useId();
+  const helper = battlenetEnabled(blizzardConfigFromEnv()) ? "Link Battle.net or add it manually" : "Register it to appear on the roster";
+  return (
+    <Link
+      href={href}
+      aria-describedby={helperId}
+      data-testid="add-main-character"
+      className="group flex items-center gap-2.5 rounded border border-gold-dim bg-gold/5 px-2.5 py-2.5 transition-colors hover:border-gold hover:bg-gold/10 focus-visible:border-gold focus-visible:bg-gold/10 focus-visible:outline-none"
+    >
+      <span aria-hidden className="btn-primary flex size-7 shrink-0 items-center justify-center rounded-full">
+        <svg viewBox="0 0 16 16" width={12} height={12}>
+          <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+        </svg>
+      </span>
+      <span className="min-w-0 leading-tight">
+        <span className="block font-display text-[0.8125rem] font-semibold text-gold group-hover:text-gold-bright">
+          Add your main character
+        </span>
+        <span id={helperId} className="mt-0.5 block text-[0.7rem] text-muted">
+          {helper}
+        </span>
+      </span>
+    </Link>
   );
 }
 

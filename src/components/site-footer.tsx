@@ -3,9 +3,10 @@ import type { ReactNode } from "react";
 import { FactionIcon } from "@/components/faction-icon";
 import { GitHubIcon } from "@/components/github-icon";
 import { GuildEmblem } from "@/components/guild-emblem";
+import { XIcon } from "@/components/x-icon";
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
-import { SOURCE_URL } from "@/lib/brand";
+import { SOURCE_URL, X_URL } from "@/lib/brand";
 import { formatClock, timezoneAbbrev } from "@/lib/format";
 import { DAYS_OF_WEEK, FACTION_LABELS } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
@@ -157,6 +158,15 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
               rel="noopener noreferrer"
             >
               <GitHubIcon size={12} />
+            </a>
+            <a
+              href={X_URL}
+              aria-label="Guildbook on X"
+              className="text-muted hover:text-gold"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <XIcon size={11} />
             </a>
           </p>
         </div>

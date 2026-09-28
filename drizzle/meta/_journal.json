@@ -99,6 +99,13 @@
       "when": 1790730100000,
       "tag": "0013_loot_ledger_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790730200000,
+      "tag": "0014_battlenet_scan",
+      "breakpoints": true
     }
   ]
 }

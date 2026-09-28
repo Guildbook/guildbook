@@ -67,5 +67,7 @@ export function brandManifestIcons(b: Brand | BrandAssets) {
 /** Guildbook's public source (AGPL-3.0); both footers link here. */
 export const SOURCE_URL = "https://github.com/Guildbook/guildbook";
 
+export const X_URL = "https://x.com/GuildbookIO";
+
 export const GUILDBOOK_DESCRIPTION =
   "Guild sites for World of Warcraft: Forever. Rosters, applications, raid schedules, progression and combat log reviews, on your own subdomain.";

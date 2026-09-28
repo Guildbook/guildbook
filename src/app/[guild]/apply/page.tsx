@@ -7,7 +7,7 @@ import { ClassName, PageHeader, Panel, StatusPill, VerifiedMark } from "@/compon
 import { db } from "@/db";
 import { can } from "@/lib/authz/policy";
 import { formatDate } from "@/lib/format";
-import { FACTION_LABELS, fullName } from "@/lib/game";
+import { fullName } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
 import { applyAction, withdrawApplicationAction } from "@/server/actions/member";
 import { getGuild, getViewer } from "@/server/context";
@@ -110,7 +110,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
                 <>
                   <BattlenetAccount link={bnet.link} slug={slug} returnTo={applyHref} timezone={guild.timezone} />
                   {bnet.characters.length === 0 && (
-                    <EmptySnapshotNote link={bnet.link} factionLabel={guild.faction ? FACTION_LABELS[guild.faction] : null} />
+                    <EmptySnapshotNote link={bnet.link} faction={guild.faction} />
                   )}
                 </>
               ) : (

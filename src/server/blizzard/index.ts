@@ -14,7 +14,7 @@ const globalForBlizzard = globalThis as unknown as { blizzardClient?: BlizzardCl
 export function getBlizzardClient(): BlizzardClient {
   if (!globalForBlizzard.blizzardClient) {
     const config = blizzardConfigFromEnv();
-    globalForBlizzard.blizzardClient = new BlizzardClient(config, config.mock ? createMockFetch() : undefined);
+    globalForBlizzard.blizzardClient = new BlizzardClient(config, config.mock ? createMockFetch(config.profileNamespace) : undefined);
   }
   return globalForBlizzard.blizzardClient;
 }
