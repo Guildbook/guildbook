@@ -133,7 +133,16 @@ test("the Guild Master verifies the guild through Battle.net", async ({ page }) 
   const link = page.getByRole("link", { name: "Link Battle.net" });
   const account = page.getByTestId("battlenet-account");
   await expect(link.or(account)).toBeVisible();
-  if (await link.isVisible()) await link.click();
+  if (await link.isVisible()) {
+    await link.click();
+  } else {
+    // The mock answers app-token character lookups with the IDs of whoever last listed their characters, and other
+    // tests have linked since; refreshing lists Tor's again.
+    await expect(async () => {
+      await account.getByRole("button", { name: "Refresh characters" }).click();
+      await expect(account.getByRole("status").filter({ hasText: /Found \d+ WoW: Forever characters/ })).toBeVisible({ timeout: 3000 });
+    }).toPass();
+  }
   await expect(account).toContainText(/Pilgrim#\d{4}/);
 
   await page.goto("/admin/guild");
