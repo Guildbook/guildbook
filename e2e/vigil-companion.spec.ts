@@ -37,7 +37,7 @@ test("pair a Vigil companion, upload with its token, then revoke it", async ({ p
   const { url } = await uploaded.json();
   await page.goto(new URL(url).pathname);
   await expect(main.getByRole("heading", { level: 1, name: "Rockhide Boar" })).toBeVisible();
-  await expect(main.getByLabel("Who can see this report")).toHaveValue("private");
+  await expect(main.getByLabel("Who can see this report")).toHaveAttribute("data-value", "private");
 
   await page.goto("/vigil/companion");
   page.once("dialog", (dialog) => dialog.accept());
