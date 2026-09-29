@@ -86,8 +86,11 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
             <h3 className="font-display text-sm tracking-wide text-gold">Your in-game guild is {claim.name}</h3>
             {claim.holderVerified ? (
               <p className="text-muted">
-                A verified guild on Guildbook already uses that name, region, faction and ruleset, so it can&apos;t be claimed. Contact the
-                Guildbook team if you think this is a mistake.
+                A verified guild on Guildbook already uses that name, region, faction and ruleset, so it can&apos;t be claimed.{" "}
+                <a href={`${current.apexOrigin}/support?category=battlenet`} className="text-gold underline-offset-2 hover:underline">
+                  Contact Guildbook support
+                </a>{" "}
+                if you think this is a mistake.
               </p>
             ) : (
               <>

@@ -11,6 +11,7 @@ import {
   guilds,
   memberships,
   ranks,
+  supportTickets,
   users,
   vigilCompanionDevices,
   vigilPreferences,
@@ -138,7 +139,7 @@ export async function exportUserData(db: Db, userId: string) {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   if (!user || user.id === DELETED_USER_ID) throw new NotFoundError("Account");
 
-  const [linkedAccounts, [bnet], memberRows, applicationRows, auditRows] = await Promise.all([
+  const [linkedAccounts, [bnet], memberRows, applicationRows, auditRows, ticketRows] = await Promise.all([
     db
       .select({ provider: accounts.provider, providerAccountId: accounts.providerAccountId, scope: accounts.scope })
       .from(accounts)
@@ -178,6 +179,7 @@ export async function exportUserData(db: Db, userId: string) {
       .innerJoin(guilds, eq(guilds.id, auditLog.guildId))
       .where(eq(auditLog.actorUserId, userId))
       .orderBy(auditLog.createdAt),
+    db.select().from(supportTickets).where(eq(supportTickets.userId, userId)).orderBy(supportTickets.createdAt),
   ]);
 
   const membershipIds = memberRows.map((m) => m.membership.id);
@@ -227,6 +229,7 @@ export async function exportUserData(db: Db, userId: string) {
     companionDevices: deviceRows,
     lootReceived: lootRows,
     auditEntriesByYou: auditRows,
+    supportRequests: ticketRows,
   };
 }
 
@@ -251,7 +254,7 @@ export interface DeletionResult {
 
 /**
  * Deletes the user and everything that is theirs: Discord accounts, Battle.net link and token, memberships,
- * characters, Vigil reports, companion devices and applications. Audit entries stay, but their actor and
+ * characters, Vigil reports, companion devices, applications and support tickets. Audit entries stay, but their actor and
  * identity fields become "Deleted user". Guilds where they're the only member are deleted too.
  */
 export async function deleteUserAccount(db: Db, userId: string, confirmName: string): Promise<DeletionResult> {

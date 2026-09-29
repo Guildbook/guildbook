@@ -164,6 +164,9 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
             <a href={`${current.apexOrigin}/privacy`} className="text-bone/70 hover:text-gold">
               Privacy
             </a>
+            <a href={`${current.apexOrigin}/support`} className="text-bone/70 hover:text-gold">
+              Support
+            </a>
           </nav>
           <p className="mt-3 inline-flex items-center gap-2 text-[11px] text-muted">
             <span>

@@ -417,6 +417,13 @@ export default async function VigilDownloadPage() {
       <section aria-labelledby="faq-heading" className="mx-auto max-w-3xl">
         <SectionHeading id="faq-heading" title="Questions" />
         <Faq release={release} platform={platform} />
+        <p className="mt-4 text-center text-sm text-muted">
+          Still stuck?{" "}
+          <Link href="/support?category=vigil" className="text-gold underline-offset-2 hover:underline">
+            Contact support
+          </Link>
+          .
+        </p>
       </section>
 
       {release && (

@@ -23,6 +23,7 @@ import { RANK_TIERS } from "@/lib/authz/tiers";
 import { THEME_BASES, type ThemeOverrides } from "@/lib/tabard/theme";
 import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/constants";
 import type { ParsedAward } from "@/lib/loot/types";
+import type { SupportTicketContext } from "@/lib/support";
 import type { GameVersion } from "@/lib/wow-versions";
 
 // ---------------------------------------------------------------------------
@@ -938,4 +939,34 @@ export const lootNameAliases = pgTable(
       foreignColumns: [characters.guildId, characters.id],
     }).onDelete("cascade"),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Support
+// ---------------------------------------------------------------------------
+
+/**
+ * A support request from a signed-in user. Each one is emailed to the operator for now; a ticketing system can build
+ * on the table later. Deleted with the account; the guild link is dropped when the guild is deleted.
+ */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    guildId: uuid("guild_id").references(() => guilds.id, { onDelete: "set null" }),
+    /** A key of SUPPORT_CATEGORIES in lib/support.ts. */
+    category: text("category").notNull(),
+    subject: text("subject").notNull(),
+    message: text("message").notNull(),
+    /** Where to reply; null means reply through Discord. */
+    replyTo: text("reply_to"),
+    context: jsonb("context").$type<SupportTicketContext>().notNull().default({}),
+    /** "open" until a ticketing system starts moving tickets on. */
+    status: text("status").notNull().default("open"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("support_tickets_user_created_idx").on(t.userId, t.createdAt)],
 );

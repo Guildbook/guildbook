@@ -134,6 +134,13 @@
       "when": 1790730600000,
       "tag": "0018_guild_crest",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790730700000,
+      "tag": "0019_support_tickets",
+      "breakpoints": true
     }
   ]
 }

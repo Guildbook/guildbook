@@ -82,7 +82,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/platform
       <Panel title="Export your data">
         <p className="mb-4 text-sm text-muted">
           Download everything Guildbook stores about you as a JSON file: your profile, guild memberships, characters,
-          applications, Vigil reports and the audit entries you made.
+          applications, Vigil reports, support requests and the audit entries you made.
         </p>
         <a href="/api/account/export" download className="btn btn-ghost" data-testid="export-data">
           Download my data
@@ -93,7 +93,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/platform
         <div className="space-y-3 text-sm text-muted" data-testid="delete-account">
           <p>
             This permanently deletes your Guildbook account: your Discord sign-in, Battle.net link, guild memberships,
-            characters, applications, Vigil reports and companion devices. Entries in guild audit logs are kept, with your
+            characters, applications, Vigil reports, support requests and companion devices. Entries in guild audit logs are kept, with your
             name replaced by &quot;Deleted user&quot;. This can&apos;t be undone.
           </p>
           {plan.soloGuilds.length > 0 && (
@@ -133,6 +133,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/platform
 
       <p className="text-center text-xs text-muted">
         See the <Link href="/privacy" className="text-gold hover:underline">Privacy Policy</Link> for what we store and why.
+        Questions or problems? <Link href="/support" className="text-gold hover:underline">Contact support</Link>.
       </p>
     </div>
   );

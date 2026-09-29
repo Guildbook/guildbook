@@ -5,9 +5,9 @@ import { lookupCustomDomainSlug } from "@/server/domain-lookup";
 
 /** Platform pages live under app/platform and are served on the apex (and the path-prefixed dev fallback). */
 const PLATFORM_PREFIX = "/platform";
-const PLATFORM_PATHS = ["/create", "/guilds", "/login", "/terms", "/privacy", "/account", "/vigil"];
+const PLATFORM_PATHS = ["/create", "/guilds", "/login", "/terms", "/privacy", "/account", "/vigil", "/support"];
 /** Platform-wide pages that guild hosts redirect to on the apex. */
-const APEX_ONLY_PATHS = ["/terms", "/privacy", "/account"];
+const APEX_ONLY_PATHS = ["/terms", "/privacy", "/account", "/support"];
 const PATH_PREFIXED = process.env.NEXT_PUBLIC_MULTI_GUILD === "true";
 
 function rewrite(request: NextRequest, pathname: string) {
@@ -50,7 +50,7 @@ function serveGuild(request: NextRequest, slug: string, apex: string) {
   const { pathname } = request.nextUrl;
   if (APEX_ONLY_PATHS.includes(pathname)) {
     // A preview serving a default guild is its own apex; render the page rather than redirect to itself.
-    const target = new URL(pathname, apex);
+    const target = new URL(`${pathname}${request.nextUrl.search}`, apex);
     const selfHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
     return target.host === selfHost ? rewrite(request, withPrefix(PLATFORM_PREFIX, pathname)) : redirectTo(request, target);
   }

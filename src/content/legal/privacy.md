@@ -86,6 +86,10 @@ Vigil works from the combat log file that World of Warcraft writes on your compu
 - You can revoke a device at any time from your guild site.
 - The companion app contains no analytics or tracking. It only talks to the Guildbook site you paired it with.
 
+### Support requests
+
+When you send a support request from guildbook.io/support, we store its category, subject and message, the guild you chose (if any), the reply-to email you gave (if any), and details that help us answer: your user ID, Discord name, the page you came from, your browser's user agent and the site version. We email a copy to the Guildbook operator so we can reply.
+
 ### Technical information
 
 Like any website, our hosting provider receives your IP address, browser details and the pages you request when you visit. We use IP addresses briefly, in memory, to limit abusive traffic; we don't store them in our database. Our host may keep request and error logs for a short period, typically from an hour to a few days depending on our hosting plan, before they are deleted automatically.
@@ -101,6 +105,7 @@ If you're in the European Economic Area, the UK or a similar jurisdiction, these
 | Battle.net link and snapshot | To verify your characters | Consent (you choose to link, and can unlink at any time) |
 | Sharing Vigil reports | To show your summaries to officers or your guild | Consent (you choose each report's visibility) |
 | Vigil summaries you keep private | To give you your own performance review | Contract |
+| Support requests | To answer your question or fix your problem | Contract |
 | Audit log, rate limiting, security logs | To keep guilds accountable and the service secure | Legitimate interests |
 
 We don't use your information for advertising, profiling or automated decisions with legal or similarly significant effects. Vigil scores are for your own review.
@@ -133,6 +138,7 @@ If a guild opts into the Guildbook directory, its name and active member count a
 ### Visible only to you
 
 - Your private Vigil reports, your Battle.net link and character snapshot, and your paired devices.
+- Your support requests, which only you and the Guildbook operator can see.
 
 ### Service providers
 
@@ -140,6 +146,7 @@ We use these providers to run Guildbook:
 
 - **Vercel** (hosting and serverless functions), United States.
 - **Neon** (Postgres database hosting), in the United States (AWS us-east-2, Ohio).
+- **Resend** (sending support requests to the operator by email), United States.
 - **Discord** (sign-in) and **Blizzard Entertainment** (optional Battle.net linking and public character data). These act as independent services under their own privacy policies.
 
 We don't share your information with anyone else, except where the law requires it, to protect people's safety or our rights, or as part of a transfer of the service to a new operator who agrees to this policy.
@@ -156,6 +163,7 @@ Your data is stored and processed in the United States. If you're outside the US
 - **Characters:** archived characters leave the roster but are kept so guild history stays intact, until the guild or your account is deleted.
 - **Applications:** pending and accepted applications are kept for the guild's records until the guild or your account is deleted. **Withdrawn and declined applications are deleted automatically {{applicationRetentionDays}} days** after they were decided (or, if never reviewed, submitted), and the applicant's name is replaced with "Deleted user" in the audit entries about them.
 - **Vigil reports:** until you delete them, or your membership, the guild or your account is deleted.
+- **Support requests:** until your account is deleted. Copies emailed to the operator are kept in the operator's mailbox for as long as needed to handle the request.
 - **Companion devices:** until the membership, guild or account is deleted. Revoked devices stop working immediately.
 - **Audit log:** kept for as long as the guild exists. When an account is deleted, its entries stay, de-identified as described below.
 - **Guild content:** until guild leaders delete it or the guild is deleted. A guild's owner can delete the guild, with all of its members' guild data and its audit log, from the guild's settings.
@@ -174,13 +182,13 @@ Depending on where you live, you may have the right to:
 
 Most of this you can do yourself:
 
-- **Export your data:** on guildbook.io/account, "Download my data" gives you a JSON file with your profile, memberships, characters, applications, Vigil reports, devices and the audit entries you made.
+- **Export your data:** on guildbook.io/account, "Download my data" gives you a JSON file with your profile, memberships, characters, applications, Vigil reports, devices, support requests and the audit entries you made.
 - **Delete your account:** on guildbook.io/account, type your name to confirm. If you're the only admin of a guild that has other members, you'll be asked to promote another member to an admin rank (or delete the guild) first. A guild where you're the only member is deleted along with your account.
 - Edit or archive your characters, withdraw pending applications, change the visibility of or delete Vigil reports, revoke companion devices, and unlink Battle.net.
 
 For anything else, email [matt.rosendin@gmail.com](mailto:matt.rosendin@gmail.com) from the address on your Discord account, or tell us your Discord username so we can confirm it's you. We'll respond within 7 days.
 
-When you delete your account, we delete your profile, Discord sign-in, memberships, characters, applications, Vigil reports and preferences, companion devices and Battle.net link and token. Guild content you edited as an officer stays with the guild, without your name attached. **Audit log entries are de-identified:** each entry is kept with its action and date, but you're shown as "Deleted user" and your name, character names, BattleTag and Discord handle in it are replaced with "Deleted user". Copies in our database provider's backups expire on its normal backup schedule.
+When you delete your account, we delete your profile, Discord sign-in, memberships, characters, applications, Vigil reports and preferences, companion devices, support requests and Battle.net link and token. Guild content you edited as an officer stays with the guild, without your name attached. **Audit log entries are de-identified:** each entry is kept with its action and date, but you're shown as "Deleted user" and your name, character names, BattleTag and Discord handle in it are replaced with "Deleted user". Copies in our database provider's backups expire on its normal backup schedule.
 
 You can also complain to your local data protection authority.
 

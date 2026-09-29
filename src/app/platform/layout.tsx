@@ -76,6 +76,9 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
             <Link href="/privacy" className="text-bone/70 hover:text-gold">
               Privacy Policy
             </Link>
+            <Link href="/support" className="text-bone/70 hover:text-gold">
+              Support
+            </Link>
             <a
               href={SOURCE_URL}
               aria-label="Source on GitHub"

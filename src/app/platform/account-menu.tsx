@@ -49,6 +49,7 @@ const ICONS = {
   settings: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM6.9 1.5h2.2l.4 1.8 1.2.7 1.8-.6 1.1 1.9-1.4 1.2v1.4l1.4 1.2-1.1 1.9-1.8-.6-1.2.7-.4 1.8H6.9l-.4-1.8-1.2-.7-1.8.6-1.1-1.9 1.4-1.2V6.5L2.4 5.3l1.1-1.9 1.8.6 1.2-.7Z",
   signOut: "M6.5 2.5h-3v11h3M10.5 5l3 3-3 3M13.5 8H6",
   create: "M8 3v10M3 8h10",
+  support: "M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4M8 11.3v.2",
 } as const;
 
 function Icon({ name }: { name: keyof typeof ICONS }) {
@@ -210,6 +211,10 @@ export function PlatformAccountMenu({
             <Icon name="settings" />
             Account and privacy
           </AccountSettingsLink>
+          <Link href="/support" className={MENU_ITEM}>
+            <Icon name="support" />
+            Help and support
+          </Link>
           <SignOutButton className={MENU_ITEM}>
             <Icon name="signOut" />
             Sign out
