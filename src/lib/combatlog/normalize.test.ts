@@ -81,6 +81,54 @@ describe("normalizeEvent", () => {
   });
 });
 
+describe("advanced block layouts", () => {
+  const PLAYER = `Player-6064-0000A001,"Paladin-Dreamscythe-US",0x511,0x80000000`;
+  const STAG = `Creature-0-6259-530-120-17130-00003B1769,"Talbuk Stag",0x10a28,0x80000000`;
+  const block = (guid: string, extra: string[], power = ["0", "2974", "3152"], level = "64") =>
+    [guid, "0000000000000000", 4290, 5715, 1206, 0, 6385, ...extra, ...power, 0, "-1492.98", "6421.02", 1951, "1.8407", level].join(",");
+  const read = (body: string, header: { version: number; build: string }) =>
+    normalizeEvent(tokenizeLine(`9/28/2026 19:12:15.745-7  ${body}`)!, { header: { ...header, advanced: true, projectId: 5 } })!;
+  const tbc = { version: 9, build: "2.5.6" };
+
+  it("reads the 18-field TBC Anniversary block and its 10-field swing suffix with baseAmount", () => {
+    const ev = read(`SWING_DAMAGE,${PLAYER},${STAG},${block("Player-6064-0000A001", ["0", "0"], undefined, "87")},645,518,-1,1,0,0,0,1,nil,nil`, tbc);
+    expect(ev).toMatchObject({ amount: 645, overkill: 0, critical: true, resisted: 0 });
+    expect(ev.adv).toMatchObject({ hp: 4290, maxHp: 5715, powerType: [0], power: [2974], maxPower: [3152], x: -1492.98, y: 6421.02 });
+    // 87 is the player's item level: over the 2.5.x cap of 70, so not reported as a level.
+    expect(ev.adv!.level).toBeUndefined();
+  });
+
+  it("keeps NPC levels and reads a spell suffix with a trailing damage-type field", () => {
+    const ev = read(`SPELL_DAMAGE,${PLAYER},${STAG},35395,"Crusader Strike",0x1,${block(STAG.split(",")[0]!, ["0", "0"], ["-1", "0", "0"])},780,626,-1,1,0,0,0,1,nil,nil,ST`, tbc);
+    expect(ev).toMatchObject({ spellName: "Crusader Strike", amount: 780, overkill: 0, critical: true });
+    expect(ev.adv).toMatchObject({ level: 64, powerType: [-1] });
+  });
+
+  it.each([
+    { fields: 16, version: 19 },
+    { fields: 17, version: 9 },
+    { fields: 17, version: 22 },
+    { fields: 19, version: 9 },
+    { fields: 20, version: 22 },
+  ])("detects a $fields-field block in a version $version log", ({ fields, version }) => {
+    const extra = Array<string>(fields - 16).fill("0");
+    const ev = read(`SPELL_HEAL,${PLAYER},${PLAYER},19750,"Flash of Light",0x2,${block("Player-6064-0000A001", extra, undefined, "60")},365,365,20,0,nil`, {
+      version,
+      build: "1.15.7",
+    });
+    expect(ev).toMatchObject({ amount: 365, overheal: 20, critical: false });
+    expect(ev.adv).toMatchObject({ power: [2974], maxPower: [3152], x: -1492.98, level: 60 });
+  });
+
+  it("reads multi-power lists split by colons or pipes", () => {
+    for (const sep of [":", "|"]) {
+      const power = [`0${sep}3`, `2974${sep}100`, `3152${sep}100`];
+      const ev = read(`SPELL_CAST_SUCCESS,${PLAYER},${STAG},35395,"Crusader Strike",0x1,${block("Player-6064-0000A001", ["0"], power, "70")}`, tbc);
+      expect(ev.adv).toMatchObject({ powerType: [0, 3], power: [2974, 100], maxPower: [3152, 100], level: 70 });
+    }
+  });
+});
+
 describe("guid helpers", () => {
   it("reads NPC ids and short names", () => {
     expect(npcIdFromGuid(mob.guid)).toBe(589);
