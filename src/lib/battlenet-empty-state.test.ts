@@ -41,8 +41,8 @@ const base: EmptySnapshotInput = {
 describe("emptySnapshotMessage", () => {
   it("says what was found per game and faction, and why it was left out", () => {
     expect(emptySnapshotMessage(base)).toBe(
-      "We found no WoW: Forever characters on Pilgrim#1234. We did find 2 Alliance characters in Classic Anniversary " +
-        "(Elowen on Dreamscythe, Tamsin on Dreamscythe) and 1 Horde character in Classic Anniversary (Gorza on Nightslayer), " +
+      "We found no WoW: Forever characters on Pilgrim#1234. We did find 2 Alliance characters in TBC Anniversary " +
+        "(Elowen on Dreamscythe, Tamsin on Dreamscythe) and 1 Horde character in TBC Anniversary (Gorza on Nightslayer), " +
         "but only WoW: Forever characters can be verified. World of Warcraft: Forever launches on Nov 4, 2026. " +
         "Once you've made your character there, refresh your characters or reconnect.",
     );

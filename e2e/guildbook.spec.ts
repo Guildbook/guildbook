@@ -45,7 +45,7 @@ test.describe("Guildbook platform", () => {
     await expect(page.getByTestId("directory").getByTestId("ruleset-badge").first()).toBeVisible();
     await expect(page.getByTestId("directory").getByTestId("region-badge").first()).toBeVisible();
     const filters = page.getByTestId("directory-filters");
-    await expect(filters.getByRole("combobox")).toHaveCount(3);
+    await expect(filters.getByRole("combobox")).toHaveCount(4);
     await chooseOption(filters.getByLabel("Region"), "eu");
     await expect(page).toHaveURL(`${APEX}/guilds?region=eu`);
     await expect(page.getByRole("link", { name: "Order of Saint Michael" })).toHaveCount(0);

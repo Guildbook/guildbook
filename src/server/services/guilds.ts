@@ -1,12 +1,26 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, type SQL, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { contentPages, guilds, ranks } from "@/db/schema";
 import type { Faction, Region, Ruleset } from "@/lib/game";
+import type { GuildVersion } from "@/lib/game-versions";
+import type { GuildIdentity } from "@/lib/guild-identity";
 import { DEFAULT_RANK_PRESET, RANK_PRESETS, type RankPresetKey, type RankTemplate } from "@/lib/rank-presets";
 import { LORE_MD, LORE_SLUG, LORE_TITLE } from "@/lib/lore";
 import { DEFAULT_TABARD, ORDER_TABARD } from "@/lib/tabard/config";
 
 export type GuildPreset = "order" | "standard";
+
+/** Guilds with this identity, matched the way `guilds_identity_key` compares them (name case-insensitively). */
+export function sameIdentity(identity: GuildIdentity): SQL {
+  return and(
+    eq(guilds.gameVersion, identity.gameVersion),
+    sql`lower(${guilds.name}) = lower(${identity.name})`,
+    eq(guilds.region, identity.region),
+    identity.realmSlug ? eq(guilds.realmSlug, identity.realmSlug) : isNull(guilds.realmSlug),
+    eq(guilds.faction, identity.faction),
+    eq(guilds.ruleset, identity.ruleset),
+  )!;
+}
 
 /** The Order of Saint Michael's ranks, modelled on a religious house. */
 export const DEFAULT_RANKS: RankTemplate[] = [
@@ -114,6 +128,10 @@ export async function createGuildWithDefaults(
     description?: string;
     timezone?: string;
     realm?: string | null;
+    /** Defaults to WoW: Forever (seeds and the Order). Guilds founded on the apex always choose. */
+    gameVersion?: GuildVersion;
+    /** Required for versions with realms, null for WoW: Forever. */
+    realmSlug?: string | null;
     /** Battle.net region; defaults to the Americas (seeds and the Order). Guilds founded on the apex always choose. */
     region?: Region;
     faction: Faction;
@@ -125,14 +143,14 @@ export async function createGuildWithDefaults(
     publishedAt?: Date | null;
   },
 ) {
-  const { rankPreset, publishedAt, region = "us", ...values } = input;
+  const { rankPreset, publishedAt, region = "us", gameVersion = "forever", realmSlug = null, ...values } = input;
   const preset =
     input.preset === "order" ? PRESETS.order : { ...RANK_PRESETS[rankPreset ?? DEFAULT_RANK_PRESET], pages: STANDARD_CONTENT_PAGES };
   const look = input.preset === "order" ? ORDER_LOOK : NEW_GUILD_LOOK;
   return db.transaction(async (tx) => {
     const [guild] = await tx
       .insert(guilds)
-      .values({ ...values, region, ...look, publishedAt: publishedAt === undefined ? new Date() : publishedAt })
+      .values({ ...values, gameVersion, realmSlug, region, ...look, publishedAt: publishedAt === undefined ? new Date() : publishedAt })
       .returning();
     if (!guild) throw new Error("Guild insert failed");
     const rankRows = await tx

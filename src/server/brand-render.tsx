@@ -4,6 +4,7 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 import { type CrestImages, detailForWidth, emblemRect, TabardArt } from "@/components/tabard-art";
 import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { type GuildVersion, realmLabel, VERSION_INFO } from "@/lib/game-versions";
 import { fromOklch, shiftLightness, toOklch } from "@/lib/tabard/color";
 import type { TabardConfig } from "@/lib/tabard/config";
 import type { GuildLook } from "@/lib/tabard/look";
@@ -153,6 +154,9 @@ export interface PreviewFacts {
   region?: Region | null;
   faction: Faction | null;
   ruleset?: Ruleset | null;
+  /** Drawn for versions other than WoW: Forever, with the realm in place of the region. */
+  gameVersion?: GuildVersion | null;
+  realmSlug?: string | null;
   recruiting: boolean;
   verified: boolean;
   /** The guild's public host, e.g. `osm.guildbook.io` or its custom domain. */
@@ -372,12 +376,21 @@ export async function linkPreview(look: GuildLook, guild: PreviewFacts) {
           </div>
         )}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {guild.region && (
+          {guild.gameVersion && guild.gameVersion !== "forever" && <Pill c={c}>{VERSION_INFO[guild.gameVersion].label}</Pill>}
+          {guild.gameVersion && guild.realmSlug ? (
             <Pill c={c}>
               {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
               <img src={globe(c.trim)} width={20} height={20} />
-              {REGION_LABELS[guild.region]}
+              {realmLabel(guild.gameVersion, guild.realmSlug, guild.region ?? undefined)}
             </Pill>
+          ) : (
+            guild.region && (
+              <Pill c={c}>
+                {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+                <img src={globe(c.trim)} width={20} height={20} />
+                {REGION_LABELS[guild.region]}
+              </Pill>
+            )
           )}
           {(guild.faction || guild.ruleset) && (
             <Pill c={c}>

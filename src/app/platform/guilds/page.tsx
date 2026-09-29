@@ -18,6 +18,7 @@ import {
   RULESETS,
   type Ruleset,
 } from "@/lib/game";
+import { DEFAULT_GUILD_VERSION, findRealm, SUPPORTED_GUILD_VERSIONS, type SupportedGuildVersion, VERSION_INFO } from "@/lib/game-versions";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { listDirectoryGuilds } from "@/server/services/platform";
 import { GuildCard } from "../guild-card";
@@ -53,8 +54,11 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
   const region = pick<Region>(REGIONS, sp.region);
   const faction = pick<Faction>(FACTIONS, sp.faction);
   const ruleset = pick<Ruleset>(RULESETS, sp.ruleset);
-  const [current, guilds] = await Promise.all([getRequestHost(), listDirectoryGuilds(db, { region, faction, ruleset })]);
-  const filtered = Boolean(region || faction || ruleset);
+  const version = pick<SupportedGuildVersion>(SUPPORTED_GUILD_VERSIONS, sp.version) ?? DEFAULT_GUILD_VERSION;
+  const realm = typeof sp.realm === "string" ? (findRealm(version, sp.realm)?.slug ?? undefined) : undefined;
+  const [current, guilds] = await Promise.all([getRequestHost(), listDirectoryGuilds(db, { version, realm, region, faction, ruleset })]);
+  const filtered = Boolean(region || faction || ruleset || realm);
+  const base = { version, realm };
 
   return (
     <div>
@@ -63,16 +67,24 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
         first. Officers can list theirs under Admin, then Guild.
       </PageHeader>
       <nav aria-label="Filter guilds" className="mb-6" data-testid="directory-filters">
-        <DirectoryFilters region={region} faction={faction} ruleset={ruleset} />
+        <DirectoryFilters version={version} realm={realm} region={region} faction={faction} ruleset={ruleset} />
         <noscript>
           <div className="mt-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
+              <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Game</span>
+              {SUPPORTED_GUILD_VERSIONS.map((v) => (
+                <FilterChip key={v} href={directoryHref({ version: v, region, faction, ruleset })} active={version === v}>
+                  {VERSION_INFO[v].label}
+                </FilterChip>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Region</span>
-              <FilterChip href={directoryHref({ faction, ruleset })} active={!region}>
+              <FilterChip href={directoryHref({ ...base, faction, ruleset })} active={!region}>
                 All
               </FilterChip>
               {REGIONS.map((r) => (
-                <FilterChip key={r} href={directoryHref({ region: r, faction, ruleset })} active={region === r}>
+                <FilterChip key={r} href={directoryHref({ ...base, region: r, faction, ruleset })} active={region === r}>
                   <RegionIcon size={13} className="text-gold-dim" />
                   {REGION_LABELS[r]}
                 </FilterChip>
@@ -80,11 +92,11 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Faction</span>
-              <FilterChip href={directoryHref({ region, ruleset })} active={!faction}>
+              <FilterChip href={directoryHref({ ...base, region, ruleset })} active={!faction}>
                 All
               </FilterChip>
               {FACTIONS.map((f) => (
-                <FilterChip key={f} href={directoryHref({ region, faction: f, ruleset })} active={faction === f}>
+                <FilterChip key={f} href={directoryHref({ ...base, region, faction: f, ruleset })} active={faction === f}>
                   <FactionIcon faction={f} size={14} decorative />
                   {FACTION_LABELS[f]}
                 </FilterChip>
@@ -92,11 +104,11 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-16 text-xs tracking-wider text-gold-dim uppercase">Ruleset</span>
-              <FilterChip href={directoryHref({ region, faction })} active={!ruleset}>
+              <FilterChip href={directoryHref({ ...base, region, faction })} active={!ruleset}>
                 All
               </FilterChip>
               {RULESETS.map((r) => (
-                <FilterChip key={r} href={directoryHref({ region, faction, ruleset: r })} active={ruleset === r}>
+                <FilterChip key={r} href={directoryHref({ ...base, region, faction, ruleset: r })} active={ruleset === r}>
                   <RulesetIcon ruleset={r} size={13} className="text-gold-dim" />
                   {RULESET_INFO[r].label}
                 </FilterChip>
@@ -109,11 +121,15 @@ export default async function DirectoryPage({ searchParams }: PageProps<"/platfo
         <p className="text-center text-muted">
           {filtered ? (
             <>
-              No listed guilds match those filters. <Link href="/guilds" className="link">Show all guilds</Link>.
+              No listed guilds match those filters. <Link href={directoryHref({ version })} className="link">Show all guilds</Link>.
             </>
           ) : (
             <>
-              No guilds are listed yet. <Link href="/create" className="link">Create the first one</Link>.
+              No {version === DEFAULT_GUILD_VERSION ? "" : `${VERSION_INFO[version].label} `}guilds are listed yet.{" "}
+              <Link href={version === DEFAULT_GUILD_VERSION ? "/create" : `/create?version=${version}`} className="link">
+                Create the first one
+              </Link>
+              .
             </>
           )}
         </p>

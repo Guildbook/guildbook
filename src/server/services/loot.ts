@@ -23,7 +23,7 @@ import { displayLootName, normalizeLootName } from "@/lib/loot/names";
 import { getLootParser, LootParseError, parseLootExport } from "@/lib/loot/parsers";
 import { dateInZone, zonedTime } from "@/lib/loot/time";
 import type { ParsedAward } from "@/lib/loot/types";
-import { lootAwardInput, lootCommitInput, lootImportInput, lootReverseInput } from "@/lib/validation";
+import { lootAwardInputFor, lootCommitInput, lootImportInput, lootReverseInput } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
@@ -205,7 +205,8 @@ async function guildCharacter(db: Db, guildId: string, id: string) {
 /** An officer's quick award. The item may be an ID, link, Wowhead URL or a name the item cache knows. */
 export async function awardLoot(db: Db, actor: Actor, raw: unknown, deps: { client?: ItemLookupClient | null; now?: Date } = {}) {
   assertCan(actor, "loot.award");
-  const input = lootAwardInput.parse(raw);
+  const [guild] = await db.select({ gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, actor.guildId));
+  const input = lootAwardInputFor(guild?.gameVersion ?? "forever").parse(raw);
   const now = deps.now ?? new Date();
   const { timezone } = await guildLootSettings(db, actor.guildId);
 

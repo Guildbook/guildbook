@@ -9,7 +9,8 @@ import type { SelectableBase } from "@/lib/tabard/theme";
 import { importInGameTabardAction, updateGuildTabardAction } from "@/server/actions/tabard";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
 import type { Guild } from "@/server/context";
-import { isPreLaunch } from "@/server/services/guild-verification";
+import { isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
+import { type GuildVersion, VERSION_INFO } from "@/lib/game-versions";
 
 const ORDER_SIZES = [16, 32, 44, 80, 128, 176];
 
@@ -22,16 +23,19 @@ function DiscordIconLink({ href }: { href: string }) {
 }
 
 /** Copies the crest from the guild's in-game profile. Before launch there are no Forever guilds to read. */
-function ImportTabard({ slug }: { slug: string }) {
-  const enabled = battlenetEnabled(blizzardConfigFromEnv());
-  const preLaunch = isPreLaunch(new Date());
+function ImportTabard({ slug, gameVersion }: { slug: string; gameVersion: GuildVersion }) {
+  const supported = verificationSupported(gameVersion);
+  const enabled = supported && battlenetEnabled(blizzardConfigFromEnv());
+  const preLaunch = isPreLaunch(new Date(), gameVersion);
   return (
     <ActionForm action={importInGameTabardAction.bind(null, slug)} className="mb-6 rounded border border-line bg-ink/40 p-4" toast={false}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="max-w-prose">
           <h3 className="font-display text-sm tracking-wide text-bone">Import your in-game tabard</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted" data-testid="tabard-import-note">
-            {!enabled
+            {!supported
+              ? `Importing from ${VERSION_INFO[gameVersion].label} is coming soon. Design your tabard below for now.`
+              : !enabled
               ? "Battle.net isn't connected on this site, so the tabard can't be read from the game. Design it below instead."
               : preLaunch
                 ? "Importing opens once WoW: Forever characters exist. Until launch, design your tabard below; after it, one click copies the emblem and colours from your guild in game."
@@ -86,7 +90,7 @@ export function TabardSection({ guild }: { guild: Guild }) {
         its trim (headings, dividers, panel borders), and the emblem colour its highlights. Saving also regenerates the
         favicon, app icons, link preview and Discord icon.
       </p>
-      <ImportTabard slug={guild.slug} />
+      <ImportTabard slug={guild.slug} gameVersion={guild.gameVersion} />
       <TabardBuilder
         key={tabardKey(look.tabard)}
         action={updateGuildTabardAction.bind(null, guild.slug)}

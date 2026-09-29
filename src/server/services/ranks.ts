@@ -4,7 +4,8 @@ import { characters, guilds, memberships, ranks, users } from "@/db/schema";
 import { type Actor, assertCan, AuthorizationError, canAssignRank, resolveTier } from "@/lib/authz/policy";
 import { fullName, MAX_IN_GAME_RANKS } from "@/lib/game";
 import { sameGuildName } from "@/lib/guild-identity";
-import { assignRankInput, guildSettingsInput, rankDefaultsInput, rankInput } from "@/lib/validation";
+import { findRealm, VERSION_INFO } from "@/lib/game-versions";
+import { assignRankInput, guildSettingsInput, rankDefaultsInput, rankInput, resolveGuildWorld } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
@@ -266,14 +267,30 @@ export async function removeMember(db: Db, actor: Actor, membershipId: string) {
 // --- Guild settings --------------------------------------------------------
 
 /**
- * Saves guild settings. Name, region, faction and ruleset are the guild's identity: they must be unique together, and
- * changing any of them on a verified guild removes the verification (the in-game guild no longer matches).
+ * Saves guild settings. Name, region, realm, faction and ruleset are the guild's identity: they must be unique
+ * together, and changing any of them on a verified guild removes the verification (the in-game guild no longer
+ * matches). The game version never changes, and a guild on a realm can move realm only while unverified.
  */
 export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "guild.settings");
-  const input = guildSettingsInput.parse(raw);
+  const parsed = guildSettingsInput.parse(raw);
+  const [current] = await db
+    .select({ gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, verifiedAt: guilds.verifiedAt })
+    .from(guilds)
+    .where(eq(guilds.id, actor.guildId));
+  if (!current) throw new NotFoundError("Guild");
+  const realmSlug = VERSION_INFO[current.gameVersion].realms ? (parsed.realmSlug ?? current.realmSlug) : null;
+  // A realm belongs to one region, so on versions with realms the realm decides the region.
+  const region = findRealm(current.gameVersion, realmSlug)?.region ?? parsed.region;
+  const world = resolveGuildWorld(current.gameVersion, { region, ruleset: parsed.ruleset, realmSlug });
+  if (!world.ok) throw new DomainError(world.message, { field: world.field });
+  if (current.verifiedAt && current.realmSlug !== world.realmSlug) {
+    throw new DomainError("A verified guild can't move realm. The realm must match the in-game guild.", { field: "realmSlug" });
+  }
+  const input = { ...parsed, gameVersion: current.gameVersion, region, realmSlug: world.realmSlug, ruleset: world.ruleset };
   const holder = await findGuildByIdentity(db, input, actor.guildId);
   if (holder) throw new DomainError(identityTakenMessage({ ...input, name: holder.name }), { field: "name" });
+  const { gameVersion: _version, ...values } = input;
   try {
     return await db.transaction(async (tx) => {
       const [before] = await tx.select().from(guilds).where(eq(guilds.id, actor.guildId));
@@ -281,12 +298,13 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
       const identityChanged =
         !sameGuildName(before.name, input.name) ||
         before.region !== input.region ||
+        before.realmSlug !== input.realmSlug ||
         before.faction !== input.faction ||
         before.ruleset !== input.ruleset;
       const unverify = Boolean(before.verifiedAt) && identityChanged;
       await tx
         .update(guilds)
-        .set({ ...input, ...(unverify ? CLEARED_VERIFICATION : {}) })
+        .set({ ...values, ...(unverify ? CLEARED_VERIFICATION : {}) })
         .where(eq(guilds.id, actor.guildId));
       await recordAudit(tx, actor, {
         action: "guild.settings",
@@ -297,6 +315,7 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
           motto: before.motto,
           timezone: before.timezone,
           region: before.region,
+          realmSlug: before.realmSlug,
           faction: before.faction,
           ruleset: before.ruleset,
           discordInviteUrl: before.discordInviteUrl,
@@ -304,7 +323,7 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
           directoryListed: before.directoryListed,
           lootPublic: before.lootPublic,
         },
-        after: input,
+        after: values,
       });
       if (unverify) {
         await recordAudit(tx, actor, {
@@ -314,6 +333,7 @@ export async function updateGuildSettings(db: Db, actor: Actor, raw: unknown) {
           before: {
             name: before.name,
             region: before.region,
+            realmSlug: before.realmSlug,
             faction: before.faction,
             ruleset: before.ruleset,
             character: before.verifiedCharacterName,

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bossKillInput, guildSettingsInput } from "@/lib/validation";
+import {
+  applicationInputFor,
+  bossKillInput,
+  bossKillInputFor,
+  characterInputFor,
+  guildSettingsInput,
+  lootAwardInputFor,
+  resolveGuildWorld,
+} from "@/lib/validation";
 
 const base = { name: "Order", timezone: "America/New_York", region: "us", faction: "alliance", ruleset: "normal" };
 
@@ -47,5 +55,64 @@ describe("boss kill date", () => {
 
   it("rejects a date in the future", () => {
     expect(message("2027-01-16")).toBe("Kills can't be dated in the future");
+  });
+});
+
+describe("dates in a game without a launch date", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-28T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("accepts TBC Anniversary kills and loot before WoW: Forever launches", () => {
+    expect(bossKillInputFor("anniversary").safeParse({ bossId: crypto.randomUUID(), killedOn: "2026-09-01" }).success).toBe(true);
+    expect(bossKillInputFor("forever").safeParse({ bossId: crypto.randomUUID(), killedOn: "2026-09-01" }).success).toBe(false);
+    const award = { item: "Warglaive of Azzinoth", characterId: crypto.randomUUID(), response: "main_spec", awardedOn: "2026-09-01" };
+    expect(lootAwardInputFor("anniversary").safeParse(award).error?.issues.some((i) => i.path[0] === "awardedOn")).not.toBe(true);
+    expect(lootAwardInputFor("forever").safeParse(award).error?.issues.some((i) => i.path[0] === "awardedOn")).toBe(true);
+  });
+});
+
+describe("characters per game version", () => {
+  const character = { name: "Gorza", wowClass: "shaman", spec: "Enhancement", role: "melee", professions: [] };
+
+  it("caps levels and profession skill by expansion", () => {
+    expect(characterInputFor("forever").safeParse({ ...character, surname: "Stone", level: 70 }).success).toBe(false);
+    expect(characterInputFor("anniversary").safeParse({ ...character, level: 70 }).success).toBe(true);
+    expect(characterInputFor("anniversary").safeParse({ ...character, level: 71 }).success).toBe(false);
+    const skill = (version: "forever" | "anniversary", n: number) =>
+      characterInputFor(version).safeParse({ ...character, surname: "Stone", level: 60, professions: [{ profession: "mining", skill: n }] }).success;
+    expect(skill("forever", 375)).toBe(false);
+    expect(skill("anniversary", 375)).toBe(true);
+  });
+
+  it("requires surnames only in WoW: Forever and stores none elsewhere", () => {
+    expect(characterInputFor("forever").safeParse({ ...character, level: 60 }).success).toBe(false);
+    expect(characterInputFor("anniversary").parse({ ...character, surname: "Stone", level: 70 }).surname).toBe("");
+    const application = {
+      characterName: "Gorza",
+      wowClass: "shaman",
+      spec: "Enhancement",
+      role: "melee",
+      level: 70,
+      raidExperience: "Karazhan",
+      availability: "Tue",
+      whyThisGuild: "Friends",
+      discordHandle: "gorza",
+      respectsFaith: "on",
+    };
+    expect(applicationInputFor({ preset: "standard", gameVersion: "anniversary" }).parse(application).characterSurname).toBe("");
+    expect(applicationInputFor({ preset: "standard", gameVersion: "forever" }).safeParse(application).success).toBe(false);
+  });
+});
+
+describe("where a guild lives in its version", () => {
+  it("needs a ruleset for WoW: Forever and a realm in the region for Anniversary", () => {
+    expect(resolveGuildWorld("forever", { region: "us", ruleset: "pvp", realmSlug: "dreamscythe" })).toEqual({ ok: true, realmSlug: null, ruleset: "pvp" });
+    expect(resolveGuildWorld("forever", { region: "us" })).toMatchObject({ ok: false, field: "ruleset" });
+    expect(resolveGuildWorld("anniversary", { region: "eu", realmSlug: "spineshatter" })).toEqual({ ok: true, realmSlug: "spineshatter", ruleset: "pvp" });
+    expect(resolveGuildWorld("anniversary", { region: "us", realmSlug: "spineshatter" })).toMatchObject({ ok: false, field: "realmSlug" });
+    expect(resolveGuildWorld("anniversary", { region: "us", ruleset: "rp" })).toMatchObject({ ok: false, field: "realmSlug" });
   });
 });

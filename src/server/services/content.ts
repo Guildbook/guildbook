@@ -10,6 +10,7 @@ import {
   characters,
   contentPages,
   contentRevisions,
+  guilds,
   instances,
   memberships,
   raidScheduleSlots,
@@ -21,7 +22,7 @@ import { fullName } from "@/lib/game";
 import {
   addonInput,
   bossInput,
-  bossKillInput,
+  bossKillInputFor,
   contentPageInput,
   instanceInput,
   recruitmentNeedInput,
@@ -202,7 +203,8 @@ export async function createBoss(db: Db, actor: Actor, raw: unknown) {
 
 export async function recordBossKill(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "progression.edit");
-  const input = bossKillInput.parse(raw);
+  const [guild] = await db.select({ gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, actor.guildId));
+  const input = bossKillInputFor(guild?.gameVersion ?? "forever").parse(raw);
   return db.transaction(async (tx) => {
     const faction = await resolveFaction(tx, actor.guildId, input.faction);
     const [row] = await tx

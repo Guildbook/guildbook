@@ -14,7 +14,7 @@ export default async function NewCharacterPage({ params }: PageProps<"/[guild]/m
     <div className="mx-auto max-w-2xl">
       <PageHeader title="Register Character" />
       <Panel>
-        <CharacterForm action={createCharacterAction.bind(null, slug)} submitLabel="Register" showFaction={!guild.faction} />
+        <CharacterForm action={createCharacterAction.bind(null, slug)} submitLabel="Register" showFaction={!guild.faction} gameVersion={guild.gameVersion} />
       </Panel>
     </div>
   );

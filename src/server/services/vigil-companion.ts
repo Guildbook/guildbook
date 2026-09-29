@@ -202,7 +202,7 @@ const uploadInput = z.object({
 });
 
 /** Stores one fight from the companion through the same service as the browser upload. */
-export async function uploadCompanionReport(db: Db, auth: DeviceAuth, raw: unknown) {
+export async function uploadCompanionReport(db: Db, auth: DeviceAuth, raw: unknown, now: Date = new Date()) {
   const input = uploadInput.parse(raw);
   if (input.guild && input.guild !== auth.guild.slug) {
     throw new AuthorizationError("This companion is paired with a different guild.");
@@ -226,7 +226,7 @@ export async function uploadCompanionReport(db: Db, auth: DeviceAuth, raw: unkno
       .limit(1);
     characterId = own?.id ?? null;
   }
-  return createVigilReport(db, auth.actor, { report: input.report, characterId, visibility: input.visibility ?? null });
+  return createVigilReport(db, auth.actor, { report: input.report, characterId, visibility: input.visibility ?? null }, now);
 }
 
 /** What the app shows once paired, and the characters it uses to narrow rotation detection. */
@@ -244,8 +244,9 @@ export async function companionProfile(db: Db, auth: DeviceAuth) {
     )
     .orderBy(desc(characters.isMain), asc(characters.name));
   const { defaultVisibility } = await getVigilPreferences(db, auth.actor);
+  const [guild] = await db.select({ gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, auth.guild.id));
   return {
-    guild: { slug: auth.guild.slug, name: auth.guild.name },
+    guild: { slug: auth.guild.slug, name: auth.guild.name, gameVersion: guild?.gameVersion ?? "forever" },
     user: { name: user?.name ?? null },
     device: auth.device,
     defaultVisibility,

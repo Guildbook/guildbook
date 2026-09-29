@@ -6,7 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import { brandIcons, guildBrand } from "@/lib/brand";
 import { guildRobots } from "@/lib/guild-setup";
 import { getGuild, getViewer } from "@/server/context";
-import { guildDescription, guildPublicOrigin, guildSocialMetadata } from "@/server/guild-metadata";
+import { guildDescription, guildPublicOrigin, guildSocialMetadata, guildTitle } from "@/server/guild-metadata";
 
 /**
  * Link previews and canonical URLs use the guild's own host: its verified custom domain, else its subdomain.
@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: LayoutProps<"/[guild]">): Pro
   const [guild, origin, social] = await Promise.all([getGuild(slug), guildPublicOrigin(slug), guildSocialMetadata(slug)]);
   return {
     metadataBase: new URL(origin),
-    title: { default: guild.name, template: `%s | ${guild.name}` },
+    title: { default: guildTitle(guild), template: `%s | ${guild.name}` },
     description: guildDescription(guild),
     applicationName: guild.name,
     icons: brandIcons(guildBrand(guild)),

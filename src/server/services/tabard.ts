@@ -13,7 +13,8 @@ import { recordAudit } from "@/server/audit";
 import type { BlizzardClient, ProfileGuild } from "@/server/blizzard/client";
 import { battlenetEnabled } from "@/server/blizzard/config";
 import { DomainError, NotFoundError } from "@/server/errors";
-import { adminCandidates, isPreLaunch } from "@/server/services/guild-verification";
+import { adminCandidates, isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
+import { VERSION_INFO } from "@/lib/game-versions";
 
 /** Columns to select wherever a guild's crest is shown (spread into a Drizzle `select`). */
 export const guildLookColumns = {
@@ -87,6 +88,9 @@ const MAX_IMPORT_LOOKUPS = 10;
  */
 async function findInGameGuild(db: Db, guild: typeof guilds.$inferSelect, client: BlizzardClient, now: Date): Promise<ProfileGuild> {
   const region = REGION_LABELS[guild.region];
+  if (!verificationSupported(guild.gameVersion)) {
+    throw new DomainError(`Importing the tabard from ${VERSION_INFO[guild.gameVersion].label} is coming soon. Design it here for now.`);
+  }
   const { links, candidates: everywhere } = await adminCandidates(db, guild.id);
   const candidates = everywhere.filter((c) => c.region === guild.region);
   const tried = new Set<string>();

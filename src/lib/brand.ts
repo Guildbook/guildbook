@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { STATIC_PREVIEW_VERSIONS } from "@/lib/brand-versions";
 import type { Faction, Region, Ruleset } from "@/lib/game";
+import type { GuildVersion } from "@/lib/game-versions";
 import { tabardKey } from "@/lib/tabard/config";
 import { guildLook, isOrderLook, type LookColumns } from "@/lib/tabard/look";
 
@@ -80,6 +81,9 @@ export interface PreviewGuild extends LookColumns {
   region?: Region | null;
   faction: Faction | null;
   ruleset?: Ruleset | null;
+  /** Absent or WoW: Forever draws no game version. */
+  gameVersion?: GuildVersion | null;
+  realmSlug?: string | null;
   recruitmentOpen: boolean;
   verifiedAt?: Date | null;
 }
@@ -110,6 +114,8 @@ export function previewVersion(guild: PreviewGuild, host: string) {
       guild.recruitmentOpen,
       Boolean(guild.verifiedAt),
       host,
+      // Only other versions add to the key, so WoW: Forever previews keep their cached URLs.
+      ...(guild.gameVersion && guild.gameVersion !== "forever" ? [guild.gameVersion, guild.realmSlug ?? ""] : []),
     ].join("|"),
   );
 }

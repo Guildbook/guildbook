@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { auditLog, memberships } from "@/db/schema";
+import { auditLog, memberships, vigilReports } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { analyzeText } from "@/lib/vigil/analyze";
 import { createCharacter } from "@/server/services/characters";
@@ -13,6 +13,7 @@ import {
   listSharedVigilReports,
   setVigilDefaultVisibility,
   setVigilReportVisibility,
+  VersionMismatchError,
 } from "@/server/services/vigil";
 import { PALADIN, paladinLog } from "../support/combatlog";
 import { createGuild, createMember, createTestDb, createVisitor, reloadActor } from "../support/db";
@@ -152,5 +153,44 @@ describe("vigil reports", () => {
     const huge = { ...report, notes: ["x".repeat(1_000_000)] };
     await expect(createVigilReport(db, owner, { report: huge })).rejects.toThrow("too large");
     await expect(getVigilReport(db, owner, "not-a-uuid")).rejects.toThrow("Report not found");
+  });
+});
+
+describe("vigil report game versions", () => {
+  const BEFORE_LAUNCH = new Date("2026-10-01T12:00:00Z");
+  const AFTER_LAUNCH = new Date("2026-11-04T00:00:01Z");
+  const tbcLog = { ...report!.log, build: "2.5.6", projectId: 5 };
+  const stored = async (id: string) => (await db.select().from(vigilReports).where(eq(vigilReports.id, id)))[0]!;
+
+  it("derives the version from the log when an older Vigil did not send it", async () => {
+    const guild = await createGuild(db, { gameVersion: "anniversary", realmSlug: "thunderstrike", region: "eu" });
+    const owner = await createMember(db, guild, "Member");
+    const saved = await createVigilReport(db, owner, { report: { ...report!, log: tbcLog } }, AFTER_LAUNCH);
+    expect(saved).toMatchObject({ gameVersion: "anniversary", versionMismatch: false, warning: null });
+    expect(await stored(saved.id)).toMatchObject({ gameVersion: "anniversary", versionMismatch: false });
+  });
+
+  it("leaves logs that do not say which game unflagged", async () => {
+    const guild = await createGuild(db);
+    const owner = await createMember(db, guild, "Squire");
+    const saved = await createVigilReport(db, owner, { report }, AFTER_LAUNCH);
+    expect(saved).toMatchObject({ gameVersion: null, versionMismatch: false });
+  });
+
+  it("flags a log from another game before WoW: Forever launches and refuses it from launch day", async () => {
+    const guild = await createGuild(db, { name: "Forever Guild" });
+    const owner = await createMember(db, guild, "Squire");
+    const era = { ...report!, gameVersion: "era" as const, log: { ...report!.log, build: "1.15.7", projectId: 2, flavor: "_classic_era_" } };
+
+    const saved = await createVigilReport(db, owner, { report: era }, BEFORE_LAUNCH);
+    expect(saved).toMatchObject({ gameVersion: "era", versionMismatch: true });
+    expect(saved.warning).toContain("From Nov 4, Vigil refuses logs from another game");
+    expect(await getVigilReport(db, owner, saved.id)).toMatchObject({ gameVersion: "era", versionMismatch: true });
+
+    const refused = createVigilReport(db, owner, { report: { ...report!, log: tbcLog } }, AFTER_LAUNCH);
+    await expect(refused).rejects.toBeInstanceOf(VersionMismatchError);
+    await expect(createVigilReport(db, owner, { report: { ...report!, log: tbcLog } }, AFTER_LAUNCH)).rejects.toThrow(
+      "This log is from TBC Anniversary; Forever Guild is a WoW: Forever guild. Pair Vigil with your TBC Anniversary guild.",
+    );
   });
 });

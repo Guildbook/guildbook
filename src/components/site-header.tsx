@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AccountCard, AccountSettingsLink, accountName, SignOutButton } from "@/components/account-card";
+import { GameVersionBadge } from "@/components/game-version";
 import { GuildEmblem } from "@/components/guild-emblem";
 import { DropdownMenu } from "@/components/dropdown-menu";
 import { NavLink } from "@/components/nav-link";
@@ -79,6 +80,7 @@ export function SiteHeader({ guild, viewer }: { guild: Guild; viewer: Viewer }) 
             {guild.name}
           </span>
           {guild.verifiedAt && <VerifiedSeal size={15} />}
+          <GameVersionBadge version={guild.gameVersion} className="shrink-0" />
         </Link>
 
         <nav className="hidden items-center gap-5 xl:flex" aria-label="Main">

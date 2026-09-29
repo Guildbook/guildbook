@@ -1,8 +1,11 @@
 import type { Faction, Region, Ruleset } from "@/lib/game";
+import { type GuildVersion, VERSION_INFO } from "@/lib/game-versions";
 import { SLUG_MAX, slugProblem } from "@/lib/hosts";
 
 /** What tells two guilds with the same name apart; a missing value (not chosen yet) never distinguishes. */
 export interface SlugIdentity {
+  gameVersion?: GuildVersion | null;
+  realmSlug?: string | null;
   region?: Region | null;
   faction?: Faction | null;
   ruleset?: Ruleset | null;
@@ -17,11 +20,15 @@ export function withSlugSuffix(base: string, suffix: string): string {
 }
 
 /**
- * Subdomains that describe `subject` where it differs from `holder`, the guild already on `base`: ruleset first, then
- * faction, then region (`oathbound-pvp`, `oathbound-horde`, `oathbound-eu`). Only valid, unreserved slugs.
+ * Subdomains that describe `subject` where it differs from `holder`, the guild already on `base`: realm first
+ * (`mirkwood-dreamscythe`), then the game version for a guild without a realm (`mirkwood-forever`), then ruleset,
+ * faction and region (`oathbound-pvp`, `oathbound-horde`, `oathbound-eu`). Only valid, unreserved slugs.
  */
 export function distinguishingSlugs(base: string, subject: SlugIdentity, holder: SlugIdentity | null): string[] {
   const suffixes: string[] = [];
+  const versionDiffers = Boolean(subject.gameVersion && holder?.gameVersion && subject.gameVersion !== holder.gameVersion);
+  if (subject.realmSlug && subject.realmSlug !== holder?.realmSlug) suffixes.push(subject.realmSlug);
+  else if (versionDiffers && !subject.realmSlug) suffixes.push(VERSION_INFO[subject.gameVersion!].slugSuffix);
   if (subject.ruleset && subject.ruleset !== holder?.ruleset) suffixes.push(RULESET_SLUG_SUFFIX[subject.ruleset]);
   if (subject.faction && subject.faction !== holder?.faction) suffixes.push(subject.faction);
   if (subject.region && subject.region !== holder?.region) suffixes.push(subject.region);

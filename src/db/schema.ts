@@ -25,6 +25,7 @@ import { ITEM_DATA_SOURCES, LOOT_RESPONSES, LOOT_SOURCES } from "@/lib/loot/cons
 import type { ParsedAward } from "@/lib/loot/types";
 import type { SupportTicketContext } from "@/lib/support";
 import type { GameVersion } from "@/lib/wow-versions";
+import { GUILD_VERSIONS } from "@/lib/game-versions";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -36,6 +37,8 @@ export const raidRoleEnum = pgEnum("raid_role", ROLES);
 export const factionEnum = pgEnum("faction", FACTIONS);
 export const rulesetEnum = pgEnum("ruleset", RULESETS);
 export const regionEnum = pgEnum("region", REGIONS);
+/** The game a guild lives in; every value exists up front, but only SUPPORTED_GUILD_VERSIONS can be chosen. */
+export const gameVersionEnum = pgEnum("game_version", GUILD_VERSIONS);
 export const professionEnum = pgEnum("profession", PROFESSIONS);
 export const membershipStatusEnum = pgEnum("membership_status", ["applicant", "active", "former"]);
 export const applicationStatusEnum = pgEnum("application_status", [
@@ -202,6 +205,8 @@ export interface BattlenetCharacterSnapshot {
   region?: (typeof REGIONS)[number];
   /** The realm's WoW: Forever ruleset when Blizzard's realm data says; absent in snapshots taken before rulesets. */
   ruleset?: (typeof RULESETS)[number] | null;
+  /** The game the character is in; absent means WoW: Forever (snapshots only kept Forever characters before versions). */
+  gameVersion?: (typeof GUILD_VERSIONS)[number];
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +222,10 @@ export const guilds = pgTable("guilds", {
   description: text("description").notNull().default(""),
   realm: text("realm"),
   timezone: text("timezone").notNull().default("America/New_York"),
+  /** The game the guild lives in (WoW: Forever, TBC Anniversary). Part of its identity; never changes. */
+  gameVersion: gameVersionEnum("game_version").notNull().default("forever"),
+  /** The guild's realm, for versions with realms (lib/game-versions.ts); null for WoW: Forever, which has none. */
+  realmSlug: text("realm_slug"),
   /** Battle.net region. Regions are separate worlds; with name, faction and ruleset, the guild's identity. */
   region: regionEnum("region").notNull(),
   /** Classic-era guilds are faction-locked: one faction per guild. */
@@ -278,7 +287,10 @@ export const guilds = pgTable("guilds", {
   createdAt: createdAt(),
 }, (t) => [
   index("guilds_created_by_idx").on(t.createdByUserId, t.createdAt),
-  uniqueIndex("guilds_identity_key").on(sql`lower(${t.name})`, t.region, t.faction, t.ruleset),
+  uniqueIndex("guilds_identity_key").on(t.gameVersion, sql`lower(${t.name})`, t.region, sql`coalesce(${t.realmSlug}, '')`, t.faction, t.ruleset),
+  index("guilds_directory_version_idx").on(t.gameVersion, t.directoryListed),
+  check("guilds_realm_by_version", sql`(${t.gameVersion} = 'forever') = (${t.realmSlug} is null)`),
+  check("guilds_order_forever", sql`${t.preset} <> 'order' or ${t.gameVersion} = 'forever'`),
   check("guilds_theme_order_only", sql`${t.themeBase} <> 'order' or ${t.preset} = 'order'`),
   check("guilds_tabard_background_range", sql`${t.tabardBackground} between 0 and 50`),
   check("guilds_tabard_border_range", sql`${t.tabardBorder} between 0 and 16`),
@@ -666,6 +678,10 @@ export const vigilReports = pgTable(
     modelId: text("model_id"),
     score: integer("score").notNull(),
     summary: jsonb("summary").notNull(),
+    /** The game version Vigil detected from the log; null when it couldn't tell. */
+    gameVersion: gameVersionEnum("game_version"),
+    /** The detected version differs from the guild's (accepted with a warning until WoW: Forever launches). */
+    versionMismatch: boolean("version_mismatch").notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [

@@ -22,6 +22,44 @@ describe("guild names", () => {
 
   it("describes an identity", () => {
     expect(describeIdentity({ region: "eu", faction: "horde", ruleset: "rp" })).toBe("Europe, Horde, Roleplaying");
+    expect(describeIdentity({ gameVersion: "forever", realmSlug: null, region: "us", faction: "horde", ruleset: "pvp" })).toBe(
+      "Americas, Horde, PvP",
+    );
+    expect(describeIdentity({ gameVersion: "anniversary", realmSlug: "dreamscythe", region: "us", faction: "horde", ruleset: "normal" })).toBe(
+      "TBC Anniversary, Dreamscythe (US), Horde",
+    );
+  });
+});
+
+describe("guild creation input per game version", () => {
+  const base = { name: "Mirkwood", slug: "mirkwood", timezone: "America/New_York", region: "us", faction: "horde" };
+
+  it("defaults to WoW: Forever, which needs a ruleset and has no realm", () => {
+    expect(createGuildInput.parse({ ...base, ruleset: "pvp" })).toMatchObject({ gameVersion: "forever", ruleset: "pvp", realmSlug: null });
+    expect(createGuildInput.parse({ ...base, gameVersion: "forever", ruleset: "rp", realmSlug: "dreamscythe" })).toMatchObject({
+      realmSlug: null,
+    });
+    expect(createGuildInput.safeParse({ ...base, gameVersion: "forever" }).success).toBe(false);
+  });
+
+  it("takes an Anniversary guild's ruleset from its realm, which must be in its region", () => {
+    expect(createGuildInput.parse({ ...base, gameVersion: "anniversary", realmSlug: "Nightslayer", ruleset: "rp" })).toMatchObject({
+      gameVersion: "anniversary",
+      realmSlug: "nightslayer",
+      ruleset: "pvp",
+    });
+    const noRealm = createGuildInput.safeParse({ ...base, gameVersion: "anniversary" });
+    expect(noRealm.success).toBe(false);
+    expect(noRealm.error?.issues[0]?.path).toEqual(["realmSlug"]);
+    const wrongRegion = createGuildInput.safeParse({ ...base, gameVersion: "anniversary", realmSlug: "thunderstrike" });
+    expect(wrongRegion.error?.issues[0]).toMatchObject({ path: ["realmSlug"], message: expect.stringContaining("another region") });
+    expect(createGuildInput.safeParse({ ...base, gameVersion: "anniversary", realmSlug: "doomhowl" }).success).toBe(false);
+  });
+
+  it("rejects versions that can't be chosen yet", () => {
+    const era = createGuildInput.safeParse({ ...base, gameVersion: "era", realmSlug: "whitemane", ruleset: "pvp" });
+    expect(era.success).toBe(false);
+    expect(era.error?.issues[0]?.path).toEqual(["gameVersion"]);
   });
 });
 

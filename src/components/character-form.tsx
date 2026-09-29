@@ -4,19 +4,26 @@ import { ClassSpecFields } from "@/components/class-spec-fields";
 import { VerifiedMark } from "@/components/ui";
 import type { CharacterWithProfessions } from "@/server/services/characters";
 import type { ActionResult } from "@/server/action-types";
-import { MAX_LEVEL, MAX_PROFESSION_SKILL, PROFESSION_LABELS, PROFESSIONS } from "@/lib/game";
+import { PROFESSION_LABELS, PROFESSIONS } from "@/lib/game";
+import { type GuildVersion, hasSurnames, maxLevelFor, maxProfessionSkillFor } from "@/lib/game-versions";
 
 export function CharacterForm({
   action,
   character,
   submitLabel,
   showFaction,
+  gameVersion = "forever",
 }: {
   action: (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
   character?: CharacterWithProfessions;
   submitLabel: string;
   showFaction: boolean;
+  /** The guild's game version: level and profession caps, and whether characters have surnames. */
+  gameVersion?: GuildVersion;
 }) {
+  const maxLevel = maxLevelFor(gameVersion);
+  const maxSkill = maxProfessionSkillFor(gameVersion);
+  const surnames = hasSurnames(gameVersion);
   const skillFor = (p: string) => character?.professions.find((x) => x.profession === p);
   const verified = Boolean(character?.verified);
   const lockedStyle = verified ? "cursor-default opacity-90" : undefined;
@@ -29,12 +36,14 @@ export function CharacterForm({
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="First name" name="name">
+        <Field label={surnames ? "First name" : "Name"} name="name">
           <input id="name" name="name" className={clsx("field", lockedStyle)} required maxLength={12} defaultValue={character?.name} readOnly={verified} autoComplete="off" />
         </Field>
-        <Field label="Surname" name="surname">
-          <input id="surname" name="surname" className="field" required maxLength={12} defaultValue={character?.surname} autoComplete="off" />
-        </Field>
+        {surnames && (
+          <Field label="Surname" name="surname">
+            <input id="surname" name="surname" className="field" required maxLength={12} defaultValue={character?.surname} autoComplete="off" />
+          </Field>
+        )}
       </div>
       <ClassSpecFields
         showFaction={showFaction && !verified}
@@ -42,7 +51,7 @@ export function CharacterForm({
         defaults={character && { faction: character.faction, wowClass: character.wowClass, spec: character.spec, role: character.role }}
       />
       <Field label="Level" name="level">
-        <input id="level" name="level" type="number" min={1} max={MAX_LEVEL} className={clsx("field", lockedStyle)} required defaultValue={character?.level ?? MAX_LEVEL} readOnly={verified} />
+        <input id="level" name="level" type="number" min={1} max={maxLevel} className={clsx("field", lockedStyle)} required defaultValue={character?.level ?? maxLevel} readOnly={verified} />
       </Field>
       <fieldset>
         <legend className="field-label">Professions</legend>
@@ -59,7 +68,7 @@ export function CharacterForm({
                   type="number"
                   name={`skill_${p}`}
                   min={1}
-                  max={MAX_PROFESSION_SKILL}
+                  max={maxSkill}
                   placeholder="Skill"
                   aria-label={`${PROFESSION_LABELS[p]} skill`}
                   defaultValue={current?.skill ?? undefined}

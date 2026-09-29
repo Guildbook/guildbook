@@ -5,18 +5,38 @@ import { VerifiedSeal } from "@/components/verified-seal";
 import { db } from "@/db";
 import { formatDate } from "@/lib/format";
 import { FACTION_LABELS, REGION_LABELS, RULESET_INFO } from "@/lib/game";
+import { VERSION_INFO } from "@/lib/game-versions";
 import { VERIFICATION_GRACE_DAYS } from "@/lib/guild-identity";
 import { guildHref } from "@/lib/paths";
 import { claimGuildNameAction, claimGuildSlugAction, verifyGuildAction } from "@/server/actions/verification";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
 import type { Guild } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
-import { getSlugClaim, isPreLaunch } from "@/server/services/guild-verification";
+import { getSlugClaim, isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Guild Settings: explains verification, runs the check on demand, and offers name and subdomain claims. */
 export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
+  if (!verificationSupported(guild.gameVersion)) {
+    return (
+      <Panel title="Verify guild" actions={<Tag>Coming soon</Tag>}>
+        <div className="space-y-2 text-sm" data-testid="verify-guild">
+          <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-bone" data-testid="verify-coming-soon">
+            Battle.net verification for {VERSION_INFO[guild.gameVersion].label} guilds is coming soon.
+          </p>
+          <p className="leading-relaxed text-muted">
+            Until then your guild works as usual, without the verified seal. When verification opens, the Guild Master links
+            Battle.net on{" "}
+            <Link href={guildHref(guild.slug, "/members/characters")} className="link">
+              My Characters
+            </Link>{" "}
+            and checks from here.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
   const [slugClaim, current] = await Promise.all([getSlugClaim(db, guild), getRequestHost()]);
   const enabled = battlenetEnabled(blizzardConfigFromEnv());
   const verified = Boolean(guild.verifiedAt);

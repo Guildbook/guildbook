@@ -3,10 +3,15 @@
 import { useEffect, useState } from "react";
 import { ActionForm, Field, FieldError, FormMessage, SubmitButton, useActionResult } from "@/components/action-form";
 import { FactionChoice } from "@/components/faction-choice";
+import { GameVersionIcon } from "@/components/game-version";
+import { Listbox, type ListboxOption } from "@/components/listbox";
 import { PresetChoices } from "@/components/rank-preset-choices";
+import { RealmSelect } from "@/components/realm-select";
 import { RegionChoice } from "@/components/region";
 import { RulesetChoice } from "@/components/ruleset";
 import { TimezoneSelect } from "@/components/timezone-select";
+import { type Region } from "@/lib/game";
+import { DEFAULT_GUILD_VERSION, type SupportedGuildVersion, SUPPORTED_GUILD_VERSIONS, VERSION_INFO } from "@/lib/game-versions";
 import { SLUG_MAX, slugProblem, suggestSlug } from "@/lib/hosts";
 import { DEFAULT_RANK_PRESET } from "@/lib/rank-presets";
 import { checkSlugAction, createGuildAction } from "@/server/actions/platform";
@@ -23,8 +28,22 @@ type Availability =
   | { state: "available" }
   | { state: "taken"; reason: string; suggestions: string[] };
 
+const VERSION_DESCRIPTIONS: Record<SupportedGuildVersion, string> = {
+  forever: "Launches Nov 4, 2026. No realms: your guild lives on a ruleset.",
+  anniversary: "The Burning Crusade on the Anniversary realms.",
+};
+
+const VERSION_OPTIONS: ListboxOption[] = SUPPORTED_GUILD_VERSIONS.map((v) => ({
+  value: v,
+  label: VERSION_INFO[v].label,
+  description: VERSION_DESCRIPTIONS[v],
+  icon: <GameVersionIcon version={v} size={15} className="text-gold-dim" />,
+}));
+
 /** Summary labels for every field `createGuildInput` validates. */
 export const CREATE_GUILD_LABELS = {
+  gameVersion: "Game version",
+  realmSlug: "Realm",
   name: "Guild name",
   slug: "Subdomain",
   region: "Region",
@@ -84,11 +103,22 @@ function SlugSuggestions({ live, onPick }: { live: string[]; onPick: (slug: stri
   );
 }
 
-export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string; hostSuffix: string }) {
+export function CreateGuildForm({
+  hostPrefix,
+  hostSuffix,
+  initialVersion = DEFAULT_GUILD_VERSION,
+}: {
+  hostPrefix: string;
+  hostSuffix: string;
+  initialVersion?: SupportedGuildVersion;
+}) {
+  const [gameVersion, setGameVersion] = useState<SupportedGuildVersion>(initialVersion);
+  const [realmSlug, setRealmSlug] = useState("");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
-  const [region, setRegion] = useState("us");
+  const [region, setRegion] = useState<Region>("us");
+  const realms = VERSION_INFO[gameVersion].realms;
   const [faction, setFaction] = useState("");
   const [ruleset, setRuleset] = useState("");
   const [timezone, setTimezone] = useState("America/New_York");
@@ -111,7 +141,7 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
     let cancelled = false;
     const timer = setTimeout(async () => {
       setAvailability({ state: "checking" });
-      const result = await checkSlugAction(slug, { region, faction, ruleset });
+      const result = await checkSlugAction(slug, realms ? { gameVersion, realmSlug, region, faction } : { gameVersion, region, faction, ruleset });
       if (cancelled) return;
       setAvailability(
         result.available ? { state: "available" } : { state: "taken", reason: result.reason, suggestions: result.suggestions ?? [] },
@@ -121,7 +151,7 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [slug, problem, region, faction, ruleset]);
+  }, [slug, problem, gameVersion, realms, realmSlug, region, faction, ruleset]);
 
   const status = !slug
     ? null
@@ -135,6 +165,22 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
 
   return (
     <ActionForm action={createGuildAction} className="space-y-5" labels={CREATE_GUILD_LABELS}>
+      <div>
+        <label htmlFor="gameVersion" className="field-label">
+          Game version
+        </label>
+        <Listbox
+          id="gameVersion"
+          name="gameVersion"
+          options={VERSION_OPTIONS}
+          value={gameVersion}
+          onChange={(v) => setGameVersion(v as SupportedGuildVersion)}
+          data-testid="game-version-select"
+        />
+        <p className="mt-1 text-xs text-muted">Each game is its own world. A guild belongs to one, and it can&apos;t be changed later.</p>
+        <FieldError name="gameVersion" />
+      </div>
+
       <Field label="Guild name" name="name">
         <input
           id="name"
@@ -187,10 +233,27 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
 
       <fieldset>
         <legend className="field-label">Region</legend>
-        <RegionChoice value={region} onChange={setRegion} />
+        <RegionChoice
+          value={region}
+          onChange={(v) => {
+            setRegion(v as Region);
+            setRealmSlug("");
+          }}
+        />
         <p className="mt-1 text-xs text-muted">Americas and Europe are separate worlds with their own characters and guilds.</p>
         <FieldError name="region" />
       </fieldset>
+
+      {realms && (
+        <div>
+          <label htmlFor="realmSlug" className="field-label">
+            Realm
+          </label>
+          <RealmSelect version={gameVersion} region={region} value={realmSlug} onChange={setRealmSlug} />
+          <p className="mt-1 text-xs text-muted">Name, realm and faction identify your guild on Guildbook, and must match the in-game guild.</p>
+          <FieldError name="realmSlug" />
+        </div>
+      )}
 
       <fieldset>
         <legend className="field-label">Faction</legend>
@@ -199,15 +262,17 @@ export function CreateGuildForm({ hostPrefix, hostSuffix }: { hostPrefix: string
         <FieldError name="faction" />
       </fieldset>
 
-      <fieldset>
-        <legend className="field-label">Ruleset</legend>
-        <RulesetChoice value={ruleset} onChange={setRuleset} />
-        <p className="mt-1 text-xs text-muted">
-          WoW: Forever has no realms: your guild lives on one ruleset. Name, region, faction and ruleset together identify your guild, and
-          must match the in-game guild to verify it.
-        </p>
-        <FieldError name="ruleset" />
-      </fieldset>
+      {!realms && (
+        <fieldset>
+          <legend className="field-label">Ruleset</legend>
+          <RulesetChoice value={ruleset} onChange={setRuleset} />
+          <p className="mt-1 text-xs text-muted">
+            WoW: Forever has no realms: your guild lives on one ruleset. Name, region, faction and ruleset together identify your guild, and
+            must match the in-game guild to verify it.
+          </p>
+          <FieldError name="ruleset" />
+        </fieldset>
+      )}
 
       <Field label="Timezone" name="timezone" hint="Raid times are shown in this timezone.">
         <TimezoneSelect value={timezone} onChange={setTimezone} required />

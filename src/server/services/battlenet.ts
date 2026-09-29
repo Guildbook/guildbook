@@ -9,7 +9,8 @@ import { recordAudit } from "@/server/audit";
 import { type BlizzardClient, describeScanForLog, type RosterMember } from "@/server/blizzard/client";
 import { battlenetEnabled, blizzardConfigFromEnv, realmSlugsFor } from "@/server/blizzard/config";
 import { decryptToken, encryptToken } from "@/server/blizzard/crypto";
-import { charactersForGuild, snapshotRegion } from "@/server/blizzard/filter";
+import { charactersForGuild, snapshotRegion, snapshotVersion } from "@/server/blizzard/filter";
+import { hasSurnames } from "@/lib/game-versions";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
 
@@ -178,11 +179,11 @@ export async function getEligibleCharacters(db: Db, actor: Actor, eligibility: E
   const link = await getBattlenetLink(db, actor.userId);
   if (!link) return { link: null, characters: [] as BattlenetCharacterSnapshot[] };
   const [guild] = await db
-    .select({ region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
+    .select({ gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
     .from(guilds)
     .where(eq(guilds.id, actor.guildId));
   if (!guild) throw new NotFoundError("Guild");
-  const realmSlugs = realmSlugsFor(eligibility, guild.region);
+  const realmSlugs = guild.gameVersion === "forever" ? realmSlugsFor(eligibility, guild.region) : [];
   return { link, characters: charactersForGuild(link.characters, { ...guild, realmSlugs }) };
 }
 
@@ -216,8 +217,9 @@ export async function importBattlenetCharacter(
   const membershipId = actor.membershipId;
   const input = importCharacterInput.parse(raw);
   const { link, character: bnet } = await resolveVerifiedCharacter(db, actor, input.bnetCharacterId, eligibility);
-  const surname = bnet.surname ?? input.surname;
-  if (!surname) throw new DomainError("Enter your character's surname.");
+  const surnames = hasSurnames(snapshotVersion(bnet));
+  const surname = surnames ? (bnet.surname ?? input.surname ?? "") : "";
+  if (surnames && !surname) throw new DomainError("Enter your character's surname.");
   if (!isValidSpec(bnet.wowClass, input.spec)) {
     throw new DomainError(`${input.spec} is not a ${CLASS_INFO[bnet.wowClass].label} spec.`);
   }

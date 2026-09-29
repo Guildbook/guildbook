@@ -11,7 +11,7 @@ export const GAME_VERSION_LABELS: Record<GameVersion, string> = {
   era: "Classic Era",
   hardcore: "Classic Hardcore",
   seasonal: "Season of Discovery",
-  anniversary: "Classic Anniversary",
+  anniversary: "TBC Anniversary",
   progression: "Classic progression",
   retail: "retail World of Warcraft",
   unknown: "other",

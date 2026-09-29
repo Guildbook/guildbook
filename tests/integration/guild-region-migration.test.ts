@@ -60,9 +60,9 @@ describe("migration 0017", () => {
         old.execute(sql`insert into guilds (slug, name, faction, ruleset, tabard_emblem_id) values ('no-region', 'No Region', 'alliance', 'normal', 128)`),
       ).rejects.toThrow();
       // The same name, faction and ruleset can exist once per region.
-      await old.execute(sql`insert into guilds (slug, name, region, faction, ruleset, tabard_emblem_id) values ('old-guild-eu', 'OLD GUILD', 'eu', 'alliance', 'normal', 128)`);
+      await old.execute(sql`insert into guilds (slug, name, game_version, region, faction, ruleset, tabard_emblem_id) values ('old-guild-eu', 'OLD GUILD', 'forever', 'eu', 'alliance', 'normal', 128)`);
       await expect(
-        old.execute(sql`insert into guilds (slug, name, region, faction, ruleset, tabard_emblem_id) values ('old-guild-us', 'old guild', 'us', 'alliance', 'normal', 128)`),
+        old.execute(sql`insert into guilds (slug, name, game_version, region, faction, ruleset, tabard_emblem_id) values ('old-guild-us', 'old guild', 'forever', 'us', 'alliance', 'normal', 128)`),
       ).rejects.toThrow();
       await client.close();
     } finally {

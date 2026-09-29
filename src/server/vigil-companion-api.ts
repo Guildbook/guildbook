@@ -14,6 +14,7 @@ import {
   takeUploadQuota,
   uploadCompanionReport,
 } from "@/server/services/vigil-companion";
+import { VersionMismatchError } from "@/server/services/vigil";
 
 /**
  * HTTP handlers behind /api/vigil/companion/*. They take the database as an argument so the integration
@@ -29,6 +30,7 @@ function errorResponse(err: unknown): Response {
   if (err instanceof z.ZodError) return json({ error: "The request was not in the expected format." }, 400);
   if (err instanceof AuthorizationError) return json({ error: err.message }, err.code === "unauthenticated" ? 401 : 403);
   if (err instanceof NotFoundError) return json({ error: err.message }, 404);
+  if (err instanceof VersionMismatchError) return json({ error: err.message, code: err.code }, 409);
   if (err instanceof DomainError) return json({ error: err.message }, 400);
   throw err;
 }
@@ -91,9 +93,9 @@ export async function handleUpload(db: Db, request: Request): Promise<Response> 
     if (!quota.ok) {
       return json({ error: "Uploading too fast. The companion will retry." }, 429, { "Retry-After": String(quota.retryAfterS) });
     }
-    const { id } = await uploadCompanionReport(db, auth, body);
+    const { id, gameVersion, versionMismatch, warning } = await uploadCompanionReport(db, auth, body);
     const url = new URL(guildHref(auth.guild.slug, `/vigil/reports/${id}`), await companionSiteUrl(db, auth.guild, request)).toString();
-    return json({ id, url }, 201);
+    return json({ id, url, gameVersion, versionMismatch, warning }, 201);
   } catch (err) {
     if (err instanceof PayloadTooLarge) return json({ error: "This fight's report is too large to upload." }, 413);
     return errorResponse(err);

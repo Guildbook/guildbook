@@ -30,6 +30,7 @@ export default async function EditCharacterPage({ params }: PageProps<"/[guild]/
           character={character}
           submitLabel="Save"
           showFaction={!guild.faction}
+          gameVersion={guild.gameVersion}
         />
       </Panel>
     </div>

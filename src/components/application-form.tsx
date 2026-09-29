@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { ActionForm, Field, FieldError, FormMessage, SubmitButton, useActionResult } from "@/components/action-form";
 import { ClassSpecFields } from "@/components/class-spec-fields";
 import type { BattlenetCharacterSnapshot } from "@/db/schema";
-import { CLASS_INFO, MAX_LEVEL } from "@/lib/game";
+import { CLASS_INFO } from "@/lib/game";
+import { type GuildVersion, hasSurnames, maxLevelFor } from "@/lib/game-versions";
 import { scrollIntoViewGently, scrollToTop } from "@/lib/scroll";
 import type { ActionResult } from "@/server/action-types";
 
@@ -37,6 +38,7 @@ export function ApplicationForm({
   defaultDiscord,
   guildName,
   faithPledge,
+  gameVersion = "forever",
 }: {
   action: (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
   characters: BattlenetCharacterSnapshot[];
@@ -45,7 +47,11 @@ export function ApplicationForm({
   guildName: string;
   /** The Order asks applicants to respect its Catholic faith; other guilds only ask them to keep the charter. */
   faithPledge: boolean;
+  /** The guild's game version: level cap, and whether characters have surnames. */
+  gameVersion?: GuildVersion;
 }) {
+  const maxLevel = maxLevelFor(gameVersion);
+  const surnames = hasSurnames(gameVersion);
   const [manual, setManual] = useState(characters.length === 0);
   const [selectedId, setSelectedId] = useState(characters[0]?.id ?? "");
   const selected = manual ? undefined : characters.find((c) => c.id === selectedId);
@@ -100,23 +106,25 @@ export function ApplicationForm({
             <Field label="First name" name="characterName">
               <input id="characterName" className="field cursor-default opacity-90" value={selected.name} readOnly />
             </Field>
-            <Field
-              label="Surname"
-              name="characterSurname"
-              hint={selected.surname ? undefined : "Battle.net doesn't provide surnames yet, so enter yours."}
-            >
-              <input
-                key={selected.id}
-                id="characterSurname"
+            {surnames && (
+              <Field
+                label="Surname"
                 name="characterSurname"
-                className="field"
-                required
-                maxLength={12}
-                autoComplete="off"
-                defaultValue={selected.surname ?? ""}
-                readOnly={Boolean(selected.surname)}
-              />
-            </Field>
+                hint={selected.surname ? undefined : "Battle.net doesn't provide surnames yet, so enter yours."}
+              >
+                <input
+                  key={selected.id}
+                  id="characterSurname"
+                  name="characterSurname"
+                  className="field"
+                  required
+                  maxLength={12}
+                  autoComplete="off"
+                  defaultValue={selected.surname ?? ""}
+                  readOnly={Boolean(selected.surname)}
+                />
+              </Field>
+            )}
             <Field label="Level" name="level">
               <input id="level" className="field cursor-default opacity-90" value={selected.level} readOnly />
             </Field>
@@ -140,16 +148,18 @@ export function ApplicationForm({
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="First name" name="characterName">
+            <Field label={surnames ? "First name" : "Name"} name="characterName">
               <input id="characterName" name="characterName" className="field" required maxLength={12} autoComplete="off" />
             </Field>
-            <Field label="Surname" name="characterSurname">
-              <input id="characterSurname" name="characterSurname" className="field" required maxLength={12} autoComplete="off" />
-            </Field>
+            {surnames && (
+              <Field label="Surname" name="characterSurname">
+                <input id="characterSurname" name="characterSurname" className="field" required maxLength={12} autoComplete="off" />
+              </Field>
+            )}
           </div>
           <ClassSpecFields showFaction={showFaction} />
           <Field label="Level" name="level">
-            <input id="level" name="level" type="number" min={1} max={MAX_LEVEL} defaultValue={MAX_LEVEL} className="field" required />
+            <input id="level" name="level" type="number" min={1} max={maxLevel} defaultValue={maxLevel} className="field" required />
           </Field>
         </>
       )}

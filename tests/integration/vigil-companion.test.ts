@@ -224,7 +224,7 @@ describe("companion upload API", () => {
     const profile = await handleProfile(db, new Request("http://localhost:3000/api/vigil/companion/me", { headers: { authorization: `Bearer ${token}` } }));
     expect(profile.status).toBe(200);
     expect(await profile.json()).toMatchObject({
-      guild: { slug: guild.guild.slug },
+      guild: { slug: guild.guild.slug, gameVersion: "forever" },
       defaultVisibility: "private",
       characters: [{ name: "Tor", wowClass: "paladin", level: 8 }],
     });
@@ -277,5 +277,45 @@ describe("companion upload API", () => {
       .set({ rateWindowStart: new Date(Date.now() - 61_000) })
       .where(and(eq(vigilCompanionDevices.id, device.id)));
     expect((await upload(token)).status).toBe(201);
+  });
+});
+
+describe("companion uploads from another game", () => {
+  const tbc = { ...report!, gameVersion: "anniversary" as const, log: { ...report!.log, build: "2.5.6", projectId: 5, flavor: "_anniversary_" } };
+
+  it("keeps a mismatched log with a warning before WoW: Forever launches, and refuses it with a 409 after", async () => {
+    const guild = await createGuild(db, { name: "Order Test" });
+    const member = await createMember(db, guild, "Squire");
+    const { token } = await pair(member);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+      const kept = await upload(token, { report: tbc });
+      expect(kept.status).toBe(201);
+      const body = await kept.json();
+      expect(body).toMatchObject({ gameVersion: "anniversary", versionMismatch: true });
+      expect(body.warning).toMatch(/This log is from TBC Anniversary; Order Test is a WoW: Forever guild/);
+
+      vi.setSystemTime(new Date("2026-11-04T00:00:00Z"));
+      const refused = await upload(token, { report: tbc });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({
+        code: "version_mismatch",
+        error: "This log is from TBC Anniversary; Order Test is a WoW: Forever guild. Pair Vigil with your TBC Anniversary guild.",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts Anniversary logs in an Anniversary guild and tells the companion the guild's version", async () => {
+    const guild = await createGuild(db, { gameVersion: "anniversary", realmSlug: "dreamscythe", faction: "horde" });
+    const member = await createMember(db, guild, "Member");
+    const { token } = await pair(member);
+    const res = await upload(token, { report: tbc });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ gameVersion: "anniversary", versionMismatch: false, warning: null });
+    const profile = await handleProfile(db, new Request("http://localhost:3000/api/vigil/companion/me", { headers: { authorization: `Bearer ${token}` } }));
+    expect(await profile.json()).toMatchObject({ guild: { gameVersion: "anniversary" } });
   });
 });

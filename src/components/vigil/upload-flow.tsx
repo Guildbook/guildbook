@@ -33,7 +33,7 @@ type Phase =
   | { step: "analyzing"; scan: LogScan; pct: number }
   | { step: "review"; scan: LogScan; reports: FightReport[] }
   | { step: "uploading"; scan: LogScan; reports: FightReport[]; done: number; total: number }
-  | { step: "uploaded"; ids: { id: string; label: string }[]; failed: string[] };
+  | { step: "uploaded"; ids: { id: string; label: string }[]; failed: string[]; warnings: string[] };
 
 function Progress({ label, pct }: { label: string; pct: number }) {
   return (
@@ -156,10 +156,14 @@ export function VigilUploadFlow({
     const chosen = reports.map((r, i) => ({ r, i })).filter(({ i }) => selected.has(i));
     const ids: { id: string; label: string }[] = [];
     const failed: string[] = [];
+    const warnings = new Set<string>();
     setPhase({ step: "uploading", scan, reports, done: 0, total: chosen.length });
     for (const [n, { r }] of chosen.entries()) {
       const res = await uploadVigilReportAction(slug, { report: r, characterId: characterId || null, visibility });
-      if (res.ok) ids.push({ id: res.id, label: r.fight.label });
+      if (res.ok) {
+        ids.push({ id: res.id, label: r.fight.label });
+        if (res.warning) warnings.add(res.warning);
+      }
       else failed.push(`${r.fight.label}: ${res.error}`);
       setPhase({ step: "uploading", scan, reports, done: n + 1, total: chosen.length });
     }
@@ -167,7 +171,7 @@ export function VigilUploadFlow({
       router.push(guildHref(slug, `/vigil/reports/${ids[0]!.id}`));
       return;
     }
-    setPhase({ step: "uploaded", ids, failed });
+    setPhase({ step: "uploaded", ids, failed, warnings: [...warnings] });
     router.refresh();
   };
 
@@ -387,6 +391,11 @@ export function VigilUploadFlow({
               </li>
             ))}
           </ul>
+          {phase.warnings.map((w) => (
+            <p key={w} className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-sm text-bone" data-testid="vigil-version-warning">
+              {w}
+            </p>
+          ))}
           {phase.failed.length > 0 && (
             <ul className="space-y-1 text-sm text-red-300">
               {phase.failed.map((f) => (

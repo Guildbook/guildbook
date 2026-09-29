@@ -100,7 +100,7 @@ describe("saving the tabard", () => {
     const g = await standardGuild();
     await expect(db.execute(sql`update guilds set tabard_emblem_id = null where id = ${g.guild.id}`)).rejects.toThrow();
     await expect(
-      db.insert(schema.guilds).values({ slug: `blank-${++n}`, name: `Blank ${n}`, region: "us", faction: "alliance", ruleset: "normal", preset: "standard" }),
+      db.insert(schema.guilds).values({ slug: `blank-${++n}`, name: `Blank ${n}`, gameVersion: "forever", region: "us", faction: "alliance", ruleset: "normal", preset: "standard" }),
     ).rejects.toThrow();
     const order = await createGuild(db);
     expect((await readGuild(order.guild.id)).tabardEmblemId).toBeNull();
@@ -163,7 +163,7 @@ describe("the Order's theme is exclusive", () => {
     const g = await standardGuild();
     await expect(db.execute(sql`update guilds set theme_base = 'order' where id = ${g.guild.id}`)).rejects.toThrow();
     await expect(
-      db.insert(schema.guilds).values({ slug: `copycat-${++n}`, name: "Copycat", region: "us", faction: "alliance", ruleset: "normal", preset: "standard", themeBase: "order" }),
+      db.insert(schema.guilds).values({ slug: `copycat-${++n}`, name: "Copycat", gameVersion: "forever", region: "us", faction: "alliance", ruleset: "normal", preset: "standard", themeBase: "order" }),
     ).rejects.toThrow();
   });
 

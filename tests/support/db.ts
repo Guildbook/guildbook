@@ -7,6 +7,7 @@ import type { Db } from "@/db/types";
 import type { Actor } from "@/lib/authz/policy";
 import { resolveTier } from "@/lib/authz/policy";
 import type { Faction, Region, Ruleset } from "@/lib/game";
+import type { GuildVersion } from "@/lib/game-versions";
 import { createGuildWithDefaults } from "@/server/services/guilds";
 
 /** A fresh in-memory Postgres with every real migration applied (including triggers). */
@@ -19,19 +20,25 @@ export async function createTestDb() {
 
 let counter = 0;
 
-/** A guild with the Order preset, whose rank names (Grand Master, Knight, Postulant...) the tests use. */
+/**
+ * A guild with the Order preset, whose rank names (Grand Master, Knight, Postulant...) the tests use. The Order preset
+ * is WoW: Forever only, so guilds in other versions get the standard ranks (Guild Master, Officer...).
+ */
 export async function createGuild(
   db: Db,
-  opts: { slug?: string; name?: string; region?: Region; faction?: Faction; ruleset?: Ruleset } = {},
+  opts: { slug?: string; name?: string; region?: Region; faction?: Faction; ruleset?: Ruleset; gameVersion?: GuildVersion; realmSlug?: string | null } = {},
 ) {
   const slug = opts.slug ?? `guild-${++counter}`;
+  const gameVersion = opts.gameVersion ?? "forever";
   return createGuildWithDefaults(db, {
     slug,
     name: opts.name ?? `Guild ${slug}`,
+    gameVersion,
+    realmSlug: opts.realmSlug ?? null,
     region: opts.region ?? "us",
     faction: opts.faction ?? "alliance",
     ruleset: opts.ruleset ?? "normal",
-    preset: "order",
+    preset: gameVersion === "forever" ? "order" : "standard",
   });
 }
 

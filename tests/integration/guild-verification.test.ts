@@ -493,3 +493,27 @@ describe("changing a verified guild's identity", () => {
     expect(await actions(guild.id)).toContain("guild.verification.remove");
   });
 });
+
+describe("guilds in other game versions", () => {
+  it("says TBC Anniversary verification is coming soon, without calling Battle.net or failing", async () => {
+    const bnet = new FakeBattlenet();
+    const guild = await createGuild(db, { name: "Mirkwood", faction: "horde", gameVersion: "anniversary", realmSlug: "dreamscythe" });
+    const gm = await createMember(db, guild, "Guild Master");
+    const { state, result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect(state).toBe("unverified");
+    expect(result).toMatchObject({ verified: false, reason: "version_unsupported", conclusive: false });
+    expect(result.message).toMatch(/verification for TBC Anniversary guilds is coming soon/);
+    expect(bnet.profileRegions).toEqual([]);
+    await expect(claimGuildName(db, gm, bnet.client(), AFTER_LAUNCH)).rejects.toThrow(/coming soon/);
+  });
+
+  it("never lapses an Anniversary guild in the daily re-check", async () => {
+    const bnet = new FakeBattlenet();
+    const guild = await createGuild(db, { name: "Kept Seal", faction: "horde", gameVersion: "anniversary", realmSlug: "nightslayer", ruleset: "pvp" });
+    await db.update(guilds).set({ verifiedAt: AFTER_LAUNCH, verificationFailingSince: new Date(AFTER_LAUNCH.getTime() - 30 * DAY) }).where(eq(guilds.id, guild.guild.id));
+    const summary = await recheckVerifiedGuilds(db, bnet.client(), AFTER_LAUNCH);
+    expect(summary.inconclusive).toBeGreaterThanOrEqual(1);
+    const [row] = await db.select().from(guilds).where(eq(guilds.id, guild.guild.id));
+    expect(row!.verifiedAt).toEqual(AFTER_LAUNCH);
+  });
+});

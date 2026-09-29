@@ -30,6 +30,8 @@ export const ORDER_PROFILE = {
   description:
     "A Catholic raiding guild for World of Warcraft: Forever, open to every player who respects the faith. We raid with discipline, speak with charity, and begin every raid with the Prayer to Saint Michael.",
   timezone: "America/New_York",
+  /** The Order is a WoW: Forever guild; the `guilds_order_forever` check keeps the preset there. */
+  gameVersion: "forever",
   faction: ORDER_FACTION,
   ruleset: ORDER_RULESET,
   preset: "order",

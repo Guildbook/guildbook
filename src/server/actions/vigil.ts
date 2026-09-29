@@ -15,18 +15,18 @@ import {
 } from "@/server/services/vigil";
 import { createPairingCode, revokeCompanionDevice } from "@/server/services/vigil-companion";
 
-export type UploadResult = { ok: true; id: string } | { ok: false; error: string };
+export type UploadResult = { ok: true; id: string; warning: string | null } | { ok: false; error: string };
 
 /** One fight per call keeps each request well under the 1 MB server action body limit. */
 export async function uploadVigilReportAction(
   slug: string,
   payload: { report: unknown; characterId: string | null; visibility: string | null },
 ): Promise<UploadResult> {
-  let id = "";
+  let saved = { id: "", warning: null as string | null };
   const result = await runAction(slug, async ({ viewer }) => {
-    id = (await createVigilReport(db, viewer.actor, payload)).id;
+    saved = await createVigilReport(db, viewer.actor, payload);
   });
-  return result.ok ? { ok: true, id } : { ok: false, error: result.error };
+  return result.ok ? { ok: true, id: saved.id, warning: saved.warning } : { ok: false, error: result.error };
 }
 
 export async function setVigilVisibilityAction(

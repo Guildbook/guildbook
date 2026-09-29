@@ -1,4 +1,4 @@
-import { WOWF_LAUNCH_DATE } from "@/lib/game";
+import { type GuildVersion, versionHasLaunched, versionLaunchLabel } from "@/lib/game-versions";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MINUTES_PER_WEEK = 7 * 24 * 60;
@@ -26,11 +26,11 @@ export function nextScheduleSlot<T extends { dayOfWeek: number; startTime: strin
   return slots.reduce((best, s) => (wait(s) < wait(best) ? s : best));
 }
 
-export const hasLaunched = (now: Date) => now >= new Date(`${WOWF_LAUNCH_DATE}T00:00:00Z`);
+/** Whether the game (WoW: Forever unless given) is open at `now`; versions without a launch date always are. */
+export const hasLaunched = (now: Date, version: GuildVersion = "forever") => versionHasLaunched(version, now);
 
-/** Launch day as "Nov 4". */
-export const launchLabel = () =>
-  new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${WOWF_LAUNCH_DATE}T12:00:00Z`));
+/** Launch day as "Nov 4" (WoW: Forever unless given); empty for versions already live. */
+export const launchLabel = (version: GuildVersion = "forever") => versionLaunchLabel(version) ?? "";
 
 interface ProgressionInstance {
   name: string;

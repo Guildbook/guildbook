@@ -1,8 +1,9 @@
-import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, ne } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { battlenetLinks, type BattlenetCharacterSnapshot, guilds, memberships, ranks, type VerificationResult } from "@/db/schema";
 import { type Actor, assertCan } from "@/lib/authz/policy";
-import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset, WOWF_LAUNCH_DATE } from "@/lib/game";
+import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { type GuildVersion, VERSION_INFO } from "@/lib/game-versions";
 import {
   cleanGuildName,
   describeIdentity,
@@ -18,6 +19,7 @@ import { battlenetEnabled } from "@/server/blizzard/config";
 import { snapshotRegion } from "@/server/blizzard/filter";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
+import { sameIdentity } from "@/server/services/guilds";
 import { relocationSlug } from "@/server/services/slug-suggestions";
 
 /** Why a guild isn't verified. */
@@ -25,6 +27,7 @@ export type VerificationReason =
   | "battlenet_disabled"
   | "no_link"
   | "prelaunch"
+  | "version_unsupported"
   | "no_forever_characters"
   | "region_mismatch"
   | "character_missing"
@@ -77,8 +80,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Characters checked against Blizzard per on-demand verification, to bound API calls. */
 const MAX_CHARACTERS_CHECKED = 10;
 
-export function isPreLaunch(now: Date): boolean {
-  return now.toISOString().slice(0, 10) < WOWF_LAUNCH_DATE;
+/** Whether the guild's game hasn't opened yet (WoW: Forever before Nov 4, 2026); versions without a launch date never are. */
+export function isPreLaunch(now: Date, version: GuildVersion = "forever"): boolean {
+  const launch = VERSION_INFO[version].launchDate;
+  return Boolean(launch) && now.toISOString().slice(0, 10) < launch!;
 }
 
 /**
@@ -167,6 +172,8 @@ export function describeCheck(
       return "Battle.net isn't configured on this site yet, so guilds can't be verified.";
     case "no_link":
       return "No admin of this guild has linked a Battle.net account. The Guild Master links theirs from My Characters, then checks again.";
+    case "version_unsupported":
+      return `Battle.net verification for ${VERSION_INFO[identity.gameVersion].label} guilds is coming soon. Until then the guild works as usual, without the verified badge.`;
     case "prelaunch":
       return `Verification opens once WoW: Forever characters exist. Forever launches on Nov 4, 2026, and Blizzard doesn't publish Forever characters yet. After launch, found the guild in game, refresh your Battle.net characters on My Characters and check again.`;
     case "no_forever_characters":
@@ -235,6 +242,22 @@ function orderCandidates(candidates: Candidate[], identity: GuildIdentity, prefe
   return [...candidates].sort((a, b) => score(a) - score(b));
 }
 
+/** Battle.net verification only knows WoW: Forever so far; TBC Anniversary verification is Phase 2. */
+export function verificationSupported(version: GuildVersion): boolean {
+  return version === "forever";
+}
+
+export function identityOf(guild: GuildIdentity): GuildIdentity {
+  return {
+    gameVersion: guild.gameVersion,
+    realmSlug: guild.realmSlug,
+    name: guild.name,
+    region: guild.region,
+    faction: guild.faction,
+    ruleset: guild.ruleset,
+  };
+}
+
 export interface VerificationRun {
   check: CharacterCheck | { ok: false; reason: VerificationReason; conclusive: boolean };
   message: string;
@@ -248,8 +271,9 @@ export async function runVerificationCheck(
   opts: { preferUserId?: string | null; now?: Date } = {},
 ): Promise<VerificationRun> {
   const now = opts.now ?? new Date();
-  const identity = { name: guild.name, region: guild.region, faction: guild.faction, ruleset: guild.ruleset };
+  const identity = identityOf(guild);
   const done = (check: VerificationRun["check"]): VerificationRun => ({ check, message: describeCheck(check, identity) });
+  if (!verificationSupported(identity.gameVersion)) return done({ ok: false, reason: "version_unsupported", conclusive: false });
   if (!battlenetEnabled(client.config)) return done({ ok: false, reason: "battlenet_disabled", conclusive: false });
 
   const { links, candidates: everywhere } = await adminCandidates(db, guild.id);
@@ -276,15 +300,7 @@ async function claimInfo(db: Db, guild: GuildIdentity & { id: string }, check: V
   const [holder] = await db
     .select({ id: guilds.id, name: guilds.name, verifiedAt: guilds.verifiedAt })
     .from(guilds)
-    .where(
-      and(
-        sql`lower(${guilds.name}) = lower(${name})`,
-        eq(guilds.region, guild.region),
-        eq(guilds.faction, guild.faction),
-        eq(guilds.ruleset, guild.ruleset),
-        ne(guilds.id, guild.id),
-      ),
-    );
+    .where(and(sameIdentity({ ...identityOf(guild), name }), ne(guilds.id, guild.id)));
   return { name, holderName: holder?.name ?? null, holderVerified: Boolean(holder?.verifiedAt) };
 }
 
@@ -394,14 +410,7 @@ async function freeUnverifiedName(tx: Db, identity: GuildIdentity): Promise<stri
     const [taken] = await tx
       .select({ id: guilds.id })
       .from(guilds)
-      .where(
-        and(
-          sql`lower(${guilds.name}) = lower(${candidate})`,
-          eq(guilds.region, identity.region),
-          eq(guilds.faction, identity.faction),
-          eq(guilds.ruleset, identity.ruleset),
-        ),
-      );
+      .where(sameIdentity({ ...identity, name: candidate }));
     if (!taken) return candidate;
   }
   throw new DomainError("Couldn't find a free name for the unverified guild. Please contact the Guildbook team.");
@@ -434,22 +443,14 @@ export async function claimGuildName(db: Db, actor: Actor, client: BlizzardClien
     throw new DomainError(`Only the Guild Master (the owner of ${check.character.name}) can claim the guild name.`);
   }
   const name = cleanGuildName(check.inGame.name);
-  const identity = { name, region: guild.region, faction: guild.faction, ruleset: guild.ruleset };
+  const identity = { ...identityOf(guild), name };
 
   try {
     return await db.transaction(async (tx) => {
       const [holder] = await tx
         .select()
         .from(guilds)
-        .where(
-          and(
-            sql`lower(${guilds.name}) = lower(${name})`,
-            eq(guilds.region, guild.region),
-            eq(guilds.faction, guild.faction),
-            eq(guilds.ruleset, guild.ruleset),
-            ne(guilds.id, guild.id),
-          ),
-        )
+        .where(and(sameIdentity(identity), ne(guilds.id, guild.id)))
         .for("update");
       let renamedHolder: string | null = null;
       if (holder) {
@@ -524,13 +525,31 @@ export function claimableSlug(guild: { name: string; slug: string }): string | n
 /** Who holds the subdomain a verified guild could claim, and where that guild would move, for the admin panel. */
 export async function getSlugClaim(
   db: Db,
-  guild: { id: string; name: string; slug: string; verifiedAt: Date | null; region: Region; faction: Faction; ruleset: Ruleset },
+  guild: {
+    id: string;
+    name: string;
+    slug: string;
+    verifiedAt: Date | null;
+    gameVersion: GuildVersion;
+    realmSlug: string | null;
+    region: Region;
+    faction: Faction;
+    ruleset: Ruleset;
+  },
 ) {
   if (!guild.verifiedAt) return null;
   const slug = claimableSlug(guild);
   if (!slug) return null;
   const [holder] = await db
-    .select({ name: guilds.name, verifiedAt: guilds.verifiedAt, region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
+    .select({
+      name: guilds.name,
+      verifiedAt: guilds.verifiedAt,
+      gameVersion: guilds.gameVersion,
+      realmSlug: guilds.realmSlug,
+      region: guilds.region,
+      faction: guilds.faction,
+      ruleset: guilds.ruleset,
+    })
     .from(guilds)
     .where(eq(guilds.slug, slug));
   if (holder?.verifiedAt) return null;
@@ -640,9 +659,11 @@ export async function recheckVerifiedGuilds(db: Db, client: BlizzardClient, now 
   const verified = await db.select().from(guilds).where(isNotNull(guilds.verifiedAt)).orderBy(asc(guilds.slug));
   for (const guild of verified) {
     summary.checked++;
-    const identity = { name: guild.name, region: guild.region, faction: guild.faction, ruleset: guild.ruleset };
+    const identity = identityOf(guild);
     let check: VerificationRun["check"];
-    if (!(await verifierStillAdmin(db, guild))) {
+    if (!verificationSupported(identity.gameVersion)) {
+      check = { ok: false, reason: "version_unsupported", conclusive: false };
+    } else if (!(await verifierStillAdmin(db, guild))) {
       check = { ok: false, reason: "gm_left", conclusive: true };
     } else if (!guild.verifiedCharacterId || !guild.verifiedCharacterName || !guild.verifiedRealmSlug) {
       check = { ok: false, reason: "character_missing", conclusive: true };

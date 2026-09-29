@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { cache } from "react";
 import { db } from "@/db";
 import { guildPreviewImage, PREVIEW_PAGES, type PreviewPage } from "@/lib/brand";
+import type { Region } from "@/lib/game";
+import { type GuildVersion, realmLabel, VERSION_INFO } from "@/lib/game-versions";
 import { getGuild } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { primaryCustomDomain } from "@/server/services/domains";
@@ -14,8 +16,25 @@ export const guildPublicOrigin = cache(async (slug: string) => {
   return guildOrigin(guild.slug, current, customDomain);
 });
 
-export const guildDescription = (guild: { name: string; description: string }) =>
-  guild.description || `${guild.name}, a World of Warcraft: Forever guild on Guildbook.`;
+type SeoGuild = { name: string; gameVersion?: GuildVersion; realmSlug?: string | null; region?: Region };
+
+/** "a TBC Anniversary guild on Dreamscythe (US)"; "a World of Warcraft: Forever guild" for Forever. */
+function guildKind(guild: SeoGuild): string {
+  const version = guild.gameVersion ?? "forever";
+  if (version === "forever") return "a World of Warcraft: Forever guild";
+  const realm = guild.realmSlug ? ` on ${realmLabel(version, guild.realmSlug, guild.region)}` : "";
+  return `a ${VERSION_INFO[version].label} guild${realm}`;
+}
+
+export const guildDescription = (guild: SeoGuild & { description: string }) =>
+  guild.description || `${guild.name}, ${guildKind(guild)} on Guildbook.`;
+
+/** The guild home page's title: the name, plus the game and realm for versions other than WoW: Forever. */
+export function guildTitle(guild: SeoGuild): string {
+  const version = guild.gameVersion ?? "forever";
+  if (version === "forever") return guild.name;
+  return `${guild.name}, ${guildKind(guild).replace(/^a /, "")}`;
+}
 
 /**
  * Open Graph and X card tags for a guild page: its link preview (with the page title above the guild's name on

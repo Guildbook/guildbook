@@ -8,15 +8,21 @@ import {
   CLASSES,
   FACTIONS,
   isValidSpec,
-  MAX_LEVEL,
-  MAX_PROFESSION_SKILL,
   PROFESSIONS,
   REGIONS,
   ROLES,
   RULESETS,
-  WOWF_LAUNCH_DATE,
 } from "@/lib/game";
 import { cleanGuildName } from "@/lib/guild-identity";
+import {
+  findRealm,
+  type GuildVersion,
+  hasSurnames,
+  maxLevelFor,
+  maxProfessionSkillFor,
+  SUPPORTED_GUILD_VERSIONS,
+  VERSION_INFO,
+} from "@/lib/game-versions";
 
 const trimmed = (max: number) => z.string().trim().max(max);
 const required = (label: string, max: number) =>
@@ -42,7 +48,10 @@ const namePart = (label: string) =>
 export const characterName = namePart("Name");
 export const characterSurname = namePart("Surname");
 
-const level = z.coerce.number().int().min(1).max(MAX_LEVEL);
+const levelFor = (version: GuildVersion) => z.coerce.number().int().min(1).max(maxLevelFor(version));
+/** Surnames exist only in WoW: Forever; elsewhere the field is ignored and stored empty. */
+const surnameFor = (version: GuildVersion) =>
+  hasSurnames(version) ? characterSurname : z.unknown().optional().transform(() => "");
 const optionalFaction = z
   .enum([...FACTIONS, ""])
   .optional()
@@ -64,13 +73,13 @@ function refineSpec<T extends { wowClass: (typeof CLASSES)[number]; spec: string
 // --- Applications ----------------------------------------------------------
 
 /** The Order's pledge also asks applicants to respect its faith; other guilds only ask them to keep the charter. */
-export const applicationInputFor = (guild: { preset: string }) =>
+export const applicationInputFor = (guild: { preset: string; gameVersion?: GuildVersion }) =>
   z
     .object({
       characterName,
-      characterSurname,
+      characterSurname: surnameFor(guild.gameVersion ?? "forever"),
       ...classSpecShape,
-      level,
+      level: levelFor(guild.gameVersion ?? "forever"),
       raidExperience: required("Raid experience", 2000),
       availability: required("Availability", 1000),
       whyThisGuild: required("This answer", 2000),
@@ -91,24 +100,29 @@ export const applicationDecision = z.object({
 
 // --- Characters ------------------------------------------------------------
 
-export const professionEntry = z.object({
-  profession: z.enum(PROFESSIONS),
-  skill: z.coerce.number().int().min(1).max(MAX_PROFESSION_SKILL).nullable(),
-});
+export const professionEntryFor = (version: GuildVersion) =>
+  z.object({
+    profession: z.enum(PROFESSIONS),
+    skill: z.coerce.number().int().min(1).max(maxProfessionSkillFor(version)).nullable(),
+  });
+export const professionEntry = professionEntryFor("forever");
 
-export const characterInput = z
-  .object({
-    name: characterName,
-    surname: characterSurname,
-    ...classSpecShape,
-    level,
-    isMain: checkbox,
-    professions: z
-      .array(professionEntry)
-      .max(4, "At most 4 professions")
-      .refine((list) => new Set(list.map((p) => p.profession)).size === list.length, "Duplicate profession"),
-  })
-  .superRefine(refineSpec);
+/** A character in a guild of this game version: level and profession caps follow its expansion. */
+export const characterInputFor = (version: GuildVersion) =>
+  z
+    .object({
+      name: characterName,
+      surname: surnameFor(version),
+      ...classSpecShape,
+      level: levelFor(version),
+      isMain: checkbox,
+      professions: z
+        .array(professionEntryFor(version))
+        .max(4, "At most 4 professions")
+        .refine((list) => new Set(list.map((p) => p.profession)).size === list.length, "Duplicate profession"),
+    })
+    .superRefine(refineSpec);
+export const characterInput = characterInputFor("forever");
 export type CharacterInput = z.infer<typeof characterInput>;
 
 /** Blizzard character IDs are numeric; we keep them as strings. */
@@ -179,7 +193,32 @@ const guildName = (max: number) => required("Name", max).transform(cleanGuildNam
 const guildFaction = z.enum(FACTIONS, "Choose your guild's faction");
 const guildRuleset = z.enum(RULESETS, "Choose your guild's ruleset");
 const guildRegion = z.enum(REGIONS, "Choose your guild's region");
+const optionalRealm = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .optional()
+  .transform((v) => (v ? v : null));
 
+/**
+ * Where a guild lives in its game version: WoW: Forever guilds choose a ruleset and have no realm; guilds in a version
+ * with realms choose a realm in their region, and the realm's type sets the ruleset.
+ */
+export function resolveGuildWorld(
+  version: GuildVersion,
+  input: { region: (typeof REGIONS)[number]; ruleset?: (typeof RULESETS)[number] | null; realmSlug?: string | null },
+): { ok: true; realmSlug: string | null; ruleset: (typeof RULESETS)[number] } | { ok: false; field: "realmSlug" | "ruleset"; message: string } {
+  if (!VERSION_INFO[version].realms) {
+    if (!input.ruleset) return { ok: false, field: "ruleset", message: "Choose your guild's ruleset" };
+    return { ok: true, realmSlug: null, ruleset: input.ruleset };
+  }
+  const realm = findRealm(version, input.realmSlug);
+  if (!realm) return { ok: false, field: "realmSlug", message: "Choose your guild's realm" };
+  if (realm.region !== input.region) return { ok: false, field: "realmSlug", message: `${realm.name} is in another region. Choose a realm in your guild's region.` };
+  return { ok: true, realmSlug: realm.slug, ruleset: realm.ruleset };
+}
+
+/** Guild settings. The game version never changes; each version's ruleset or realm is resolved by `resolveGuildWorld`. */
 export const guildSettingsInput = z.object({
   name: guildName(80),
   motto: optionalText(120),
@@ -187,7 +226,8 @@ export const guildSettingsInput = z.object({
   timezone,
   region: guildRegion,
   faction: guildFaction,
-  ruleset: guildRuleset,
+  ruleset: guildRuleset.optional(),
+  realmSlug: optionalRealm,
   discordInviteUrl,
   recruitmentOpen: checkbox,
   directoryListed: checkbox,
@@ -211,17 +251,53 @@ export const guildSlug = z
     if (problem) ctx.addIssue({ code: "custom", message: SLUG_MESSAGES[problem] });
   });
 
-export const createGuildInput = z.object({
+const createGuildShared = {
   name: guildName(60),
   slug: guildSlug,
   region: guildRegion,
   faction: guildFaction,
-  ruleset: guildRuleset,
   timezone,
   motto: optionalText(120),
   directoryListed: checkbox,
   rankPreset: z.enum(RANK_PRESET_KEYS).catch(DEFAULT_RANK_PRESET),
-});
+};
+
+/** WoW: Forever guilds choose a ruleset; they have no realm. */
+export const createForeverGuild = z
+  .object({
+    gameVersion: z.literal("forever"),
+    ...createGuildShared,
+    ruleset: guildRuleset,
+  })
+  .transform((v) => ({ ...v, realmSlug: null as string | null }));
+
+/** TBC Anniversary guilds choose a realm in their region; its type sets the ruleset, so a submitted one is ignored. */
+export const createAnniversaryGuild = z
+  .object({
+    gameVersion: z.literal("anniversary"),
+    ...createGuildShared,
+    realmSlug: z.string("Choose your guild's realm").trim().toLowerCase(),
+  })
+  .superRefine((v, ctx) => {
+    const world = resolveGuildWorld("anniversary", { region: v.region, realmSlug: v.realmSlug });
+    if (!world.ok) ctx.addIssue({ code: "custom", path: [world.field], message: world.message });
+  })
+  .transform((v) => ({ ...v, ruleset: findRealm("anniversary", v.realmSlug)!.ruleset }));
+
+/** A missing version (older clients, tests) means WoW: Forever. */
+function defaultVersion(raw: unknown) {
+  if (!raw || typeof raw !== "object") return raw;
+  const v = (raw as { gameVersion?: unknown }).gameVersion;
+  return v === undefined || v === "" ? { ...raw, gameVersion: "forever" } : raw;
+}
+
+export const createGuildInput = z.preprocess(
+  defaultVersion,
+  z.discriminatedUnion("gameVersion", [createForeverGuild, createAnniversaryGuild], {
+    error: () => `Choose one of ${SUPPORTED_GUILD_VERSIONS.map((v) => VERSION_INFO[v].label).join(" or ")}`,
+  }),
+);
+export type CreateGuildInput = z.infer<typeof createGuildInput>;
 
 /** A bare hostname such as `orderofsaintmichael.org` or `www.example.com`; a pasted URL is reduced to its host. */
 export const customDomainInput = z.object({
@@ -285,15 +361,23 @@ function latestCalendarDate(): string {
 
 export const bossInput = z.object({ instanceId: uuid, name: required("Name", 80) });
 
-export const bossKillInput = z.object({
-  bossId: uuid,
-  faction: optionalFaction,
-  killedOn: z.iso
+/** A date in game: not in the future, and for a version with a launch date (WoW: Forever), not before launch. */
+const gameDate = (what: string, version: GuildVersion) => {
+  const launch = VERSION_INFO[version].launchDate;
+  return z.iso
     .date("Use a valid date")
-    .refine((d) => d >= WOWF_LAUNCH_DATE, "Kills can't be dated before World of Warcraft: Forever launched on Nov 4, 2026")
-    .refine((d) => d <= latestCalendarDate(), "Kills can't be dated in the future"),
-  note: trimmed(300).default(""),
-});
+    .refine((d) => !launch || d >= launch, `${what} can't be dated before World of Warcraft: Forever launched on Nov 4, 2026`)
+    .refine((d) => d <= latestCalendarDate(), `${what} can't be dated in the future`);
+};
+
+export const bossKillInputFor = (version: GuildVersion) =>
+  z.object({
+    bossId: uuid,
+    faction: optionalFaction,
+    killedOn: gameDate("Kills", version),
+    note: trimmed(300).default(""),
+  });
+export const bossKillInput = bossKillInputFor("forever");
 
 // --- Addons ----------------------------------------------------------------
 
@@ -323,22 +407,21 @@ const optionalUuid = z
   .optional()
   .transform((v) => (v ? v : null));
 
-export const lootAwardInput = z
-  .object({
-    item: required("Item", 300),
-    characterId: optionalUuid,
-    response: z.enum(LOOT_RESPONSES, "Choose why the item was awarded"),
-    bossId: optionalUuid,
-    awardedOn: z.iso
-      .date("Use a valid date")
-      .refine((d) => d >= WOWF_LAUNCH_DATE, "Loot can't be dated before World of Warcraft: Forever launched on Nov 4, 2026")
-      .refine((d) => d <= latestCalendarDate(), "Loot can't be dated in the future"),
-    note: optionalText(300),
-  })
-  .refine((v) => v.characterId || NO_RECIPIENT_RESPONSES.has(v.response), {
-    path: ["characterId"],
-    message: "Choose who received the item",
-  });
+export const lootAwardInputFor = (version: GuildVersion) =>
+  z
+    .object({
+      item: required("Item", 300),
+      characterId: optionalUuid,
+      response: z.enum(LOOT_RESPONSES, "Choose why the item was awarded"),
+      bossId: optionalUuid,
+      awardedOn: gameDate("Loot", version),
+      note: optionalText(300),
+    })
+    .refine((v) => v.characterId || NO_RECIPIENT_RESPONSES.has(v.response), {
+      path: ["characterId"],
+      message: "Choose who received the item",
+    });
+export const lootAwardInput = lootAwardInputFor("forever");
 
 export const lootReverseInput = z.object({
   entryId: uuid,

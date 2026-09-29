@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
-import { characterProfessions, characters, memberships, ranks } from "@/db/schema";
+import { characterProfessions, characters, guilds, memberships, ranks } from "@/db/schema";
 import { type Actor, assertCan } from "@/lib/authz/policy";
 import { fullName, isValidSpec } from "@/lib/game";
-import { characterInput, type CharacterInput } from "@/lib/validation";
+import { characterInputFor, type CharacterInput } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
@@ -69,6 +69,11 @@ async function replaceProfessions(tx: Db, guildId: string, characterId: string, 
   }
 }
 
+async function guildVersionOf(db: Db, guildId: string) {
+  const [row] = await db.select({ gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, guildId));
+  return row?.gameVersion ?? "forever";
+}
+
 function rethrowNameConflict(err: unknown, input: CharacterInput): never {
   if (isUniqueViolation(err)) {
     throw new DomainError(`A character named ${fullName(input.name, input.surname)} is already registered.`);
@@ -79,7 +84,7 @@ function rethrowNameConflict(err: unknown, input: CharacterInput): never {
 export async function createCharacter(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "character.manageOwn");
   const membershipId = requireMembership(actor);
-  const input = characterInput.parse(raw);
+  const input = characterInputFor(await guildVersionOf(db, actor.guildId)).parse(raw);
   try {
     return await db.transaction(async (tx) => {
       const faction = await resolveFaction(tx, actor.guildId, input.faction);
@@ -111,7 +116,7 @@ export async function createCharacter(db: Db, actor: Actor, raw: unknown) {
 
 export async function updateCharacter(db: Db, actor: Actor, id: string, raw: unknown) {
   assertCan(actor, "character.manageOwn");
-  const input = characterInput.parse(raw);
+  const input = characterInputFor(await guildVersionOf(db, actor.guildId)).parse(raw);
   try {
     return await db.transaction(async (tx) => {
       const current = await loadOwnCharacter(tx, actor, id);

@@ -31,7 +31,7 @@ export async function suggestSlugs(db: Db, base: string, subject: SlugIdentity):
   const slug = base.trim().toLowerCase();
   if (slugProblem(slug) === "characters" || slugProblem(slug) === "length") return [];
   const [holder] = await db
-    .select({ region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
+    .select({ gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, region: guilds.region, faction: guilds.faction, ruleset: guilds.ruleset })
     .from(guilds)
     .where(eq(guilds.slug, slug));
   if (!holder && !slugProblem(slug)) return [];

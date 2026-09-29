@@ -19,6 +19,23 @@ describe("distinguishingSlugs", () => {
     expect(distinguishingSlugs("oathbound", { ...holder, region: "us" }, { ...holder, region: "eu" })).toEqual(["oathbound-us"]);
   });
 
+  it("names the realm first for a guild on a realm, then ruleset, faction and region", () => {
+    const forever = { gameVersion: "forever", realmSlug: null, region: "us", faction: "horde", ruleset: "normal" } as const;
+    const anniversary = { gameVersion: "anniversary", realmSlug: "dreamscythe", region: "us", faction: "horde", ruleset: "normal" } as const;
+    expect(distinguishingSlugs("mirkwood", anniversary, forever)).toEqual(["mirkwood-dreamscythe"]);
+    expect(distinguishingSlugs("mirkwood", { ...anniversary, realmSlug: "nightslayer", ruleset: "pvp" }, anniversary)).toEqual([
+      "mirkwood-nightslayer",
+      "mirkwood-pvp",
+    ]);
+    expect(distinguishingSlugs("mirkwood", { ...anniversary, faction: "alliance" }, anniversary)).toEqual(["mirkwood-alliance"]);
+  });
+
+  it("names the game version for a guild without a realm when the holder is in another version", () => {
+    const forever = { gameVersion: "forever", realmSlug: null, region: "us", faction: "horde", ruleset: "normal" } as const;
+    const anniversary = { gameVersion: "anniversary", realmSlug: "dreamscythe", region: "us", faction: "horde", ruleset: "normal" } as const;
+    expect(distinguishingSlugs("mirkwood", forever, anniversary)).toEqual(["mirkwood-forever"]);
+  });
+
   it("offers nothing for an identical identity or values not chosen yet", () => {
     expect(distinguishingSlugs("oathbound", holder, holder)).toEqual([]);
     expect(distinguishingSlugs("oathbound", {}, holder)).toEqual([]);

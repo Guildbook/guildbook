@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { FactionIcon } from "@/components/faction-icon";
 import { GitHubIcon } from "@/components/github-icon";
+import { GameVersionIcon } from "@/components/game-version";
 import { GuildEmblem } from "@/components/guild-emblem";
 import { RegionIcon } from "@/components/region";
 import { RulesetIcon } from "@/components/ruleset";
@@ -12,6 +13,7 @@ import { can } from "@/lib/authz/policy";
 import { SOURCE_URL, X_URL } from "@/lib/brand";
 import { formatClock, timezoneAbbrev } from "@/lib/format";
 import { DAYS_OF_WEEK, FACTION_LABELS, REGION_LABELS, RULESET_INFO } from "@/lib/game";
+import { realmLabel, VERSION_INFO } from "@/lib/game-versions";
 import { guildHref } from "@/lib/paths";
 import { type Guild, offersApply, type Viewer } from "@/server/context";
 import { getRequestHost } from "@/server/hosts";
@@ -85,6 +87,23 @@ export async function SiteFooter({ guild, viewer }: { guild: Guild; viewer: View
             </ul>
           )}
           <dl className="mt-4 space-y-1 text-xs text-muted">
+            {guild.gameVersion !== "forever" && (
+              <div>
+                <dt className="inline text-gold-dim">Game </dt>
+                <dd className="inline-flex items-center gap-1 align-middle" data-testid="footer-game-version">
+                  <GameVersionIcon version={guild.gameVersion} size={13} className="text-gold-dim" />
+                  {VERSION_INFO[guild.gameVersion].label}
+                </dd>
+              </div>
+            )}
+            {guild.realmSlug && (
+              <div>
+                <dt className="inline text-gold-dim">Realm </dt>
+                <dd className="inline align-middle" data-testid="footer-realm">
+                  {realmLabel(guild.gameVersion, guild.realmSlug, guild.region)}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="inline text-gold-dim">Region </dt>
               <dd className="inline-flex items-center gap-1 align-middle" data-testid="footer-region">

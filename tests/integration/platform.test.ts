@@ -292,3 +292,66 @@ describe("subdomain suggestions", () => {
     expect(actionError(err)).toMatchObject({ ok: false, error: "Please fix these fields:", fieldErrors: { region: ["Choose your guild's region"] } });
   });
 });
+
+describe("game versions", () => {
+  const anniversary = (slug: string, extra: Record<string, string> = {}) =>
+    form(slug, { name: "Mirkwood", faction: "horde", gameVersion: "anniversary", realmSlug: "dreamscythe", ruleset: "", ...extra });
+
+  it("creates an unverified TBC Anniversary guild on a realm, with the realm's ruleset", async () => {
+    const user = await newUser();
+    const { guild } = await createGuildForUser(db, user.id, anniversary("mirkwood"), limits);
+    expect(guild).toMatchObject({ gameVersion: "anniversary", realmSlug: "dreamscythe", region: "us", ruleset: "normal", verifiedAt: null });
+    const [audit] = await db.select().from(auditLog).where(and(eq(auditLog.guildId, guild.id), eq(auditLog.action, "guild.create")));
+    expect(audit?.after).toMatchObject({ gameVersion: "anniversary", realmSlug: "dreamscythe" });
+  });
+
+  it("scopes names to the version and realm, and suggests the realm as the subdomain", async () => {
+    const forever = await newUser();
+    await createGuildForUser(db, forever.id, form("elderwood", { name: "Elderwood", faction: "horde" }), limits);
+    const founder = await newUser();
+    expect(await checkSlugAvailability(db, "elderwood", { gameVersion: "anniversary", realmSlug: "dreamscythe", region: "us", faction: "horde", ruleset: "normal" })).toMatchObject({
+      suggestions: ["elderwood-dreamscythe"],
+    });
+    const { guild } = await createGuildForUser(db, founder.id, anniversary("elderwood-dreamscythe", { name: "Elderwood" }), limits);
+    expect(guild.name).toBe("Elderwood");
+    // Another realm is another world; the same realm is taken.
+    const other = await newUser();
+    await expect(createGuildForUser(db, other.id, anniversary("elderwood-nightslayer", { name: "Elderwood", realmSlug: "nightslayer" }), limits)).resolves.toBeTruthy();
+    await expect(createGuildForUser(db, other.id, anniversary("elderwood-again", { name: "ELDERWOOD" }), limits)).rejects.toThrow(
+      /Elderwood \(TBC Anniversary, Dreamscythe \(US\), Horde\) is already on Guildbook/,
+    );
+  });
+
+  it("refuses a realm in another region and versions that can't be chosen", async () => {
+    const user = await newUser();
+    await expect(createGuildForUser(db, user.id, anniversary("wrong-realm", { realmSlug: "thunderstrike" }), limits)).rejects.toThrow();
+    await expect(createGuildForUser(db, user.id, form("era-guild", { gameVersion: "era" }), limits)).rejects.toThrow();
+  });
+
+  it("keeps the version and lets the realm change only while unverified", async () => {
+    const user = await newUser();
+    const { guild } = await createGuildForUser(db, user.id, anniversary("realm-mover", { name: "Realm Mover" }), limits);
+    const [membership] = await db.select().from(memberships).where(eq(memberships.guildId, guild.id));
+    const gm = { guildId: guild.id, userId: user.id, membershipId: membership!.id, tier: "admin" as const };
+    const settings = { name: "Realm Mover", timezone: "America/New_York", region: "us", faction: "horde", gameVersion: "forever", ruleset: "rp" };
+
+    await updateGuildSettings(db, gm, { ...settings, realmSlug: "spineshatter" });
+    const [moved] = await db.select().from(guilds).where(eq(guilds.id, guild.id));
+    expect(moved).toMatchObject({ gameVersion: "anniversary", realmSlug: "spineshatter", region: "eu", ruleset: "pvp" });
+
+    await db.update(guilds).set({ verifiedAt: new Date(), verifiedVia: "battlenet" }).where(eq(guilds.id, guild.id));
+    await expect(updateGuildSettings(db, gm, { ...settings, region: "eu", realmSlug: "thunderstrike" })).rejects.toThrow(/can't move realm/);
+    await expect(updateGuildSettings(db, gm, { ...settings, region: "eu", motto: "Still here" })).resolves.toMatchObject({ unverified: false });
+    expect((await db.select().from(guilds).where(eq(guilds.id, guild.id)))[0]).toMatchObject({ realmSlug: "spineshatter", motto: "Still here" });
+  });
+
+  it("lists WoW: Forever by default and other versions only when asked, filterable by realm", async () => {
+    const user = await newUser();
+    const tbc = await createGuildForUser(db, user.id, anniversary("dir-tbc", { name: "Dir TBC", realmSlug: "nightslayer", directoryListed: "on" }), limits);
+    await db.update(guilds).set({ publishedAt: new Date() }).where(eq(guilds.id, tbc.guild.id));
+    expect((await listDirectoryGuilds(db)).map((g) => g.slug)).not.toContain("dir-tbc");
+    expect((await listDirectoryGuilds(db, { version: "anniversary" })).map((g) => g.slug)).toEqual(["dir-tbc"]);
+    expect((await listDirectoryGuilds(db, { version: "anniversary", realm: "dreamscythe" })).map((g) => g.slug)).toEqual([]);
+    expect((await listDirectoryGuilds(db, { version: "anniversary", realm: "nightslayer" }))[0]).toMatchObject({ gameVersion: "anniversary", realmSlug: "nightslayer" });
+  });
+});

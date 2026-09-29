@@ -25,7 +25,8 @@ import {
 import { requirePage } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { getGuildSetup } from "@/server/services/guild-setup";
-import { isPreLaunch } from "@/server/services/guild-verification";
+import { isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
+import { VERSION_INFO } from "@/lib/game-versions";
 import { listRanks } from "@/server/services/ranks";
 import { SetupProgress, STEP_COPY, StepStatusIcon } from "./steps";
 
@@ -117,7 +118,12 @@ export default async function SetupPage({ params }: PageProps<"/[guild]/admin/se
           ))}
       </div>
     ),
-    verify: isPreLaunch(new Date()) && (
+    verify: !verificationSupported(guild.gameVersion) ? (
+      <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-sm text-bone" data-testid="setup-verify-coming-soon">
+        This can wait. Battle.net verification for {VERSION_INFO[guild.gameVersion].label} guilds is coming soon; skip this step
+        for now.
+      </p>
+    ) : isPreLaunch(new Date(), guild.gameVersion) && (
       <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-sm text-bone">
         This can wait. Verification opens once WoW: Forever characters exist, from launch on Nov 4, 2026, and it needs the
         in-game Guild Master&apos;s own Battle.net account.

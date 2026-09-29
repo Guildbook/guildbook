@@ -1,15 +1,16 @@
-import { and, asc, count, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { characters, guildDomains, guilds, memberships, ranks, users } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { CONTACT_EMAIL } from "@/lib/brand";
 import type { Faction, Region, Ruleset } from "@/lib/game";
+import { DEFAULT_GUILD_VERSION, type SupportedGuildVersion } from "@/lib/game-versions";
 import { describeIdentity, type GuildIdentity } from "@/lib/guild-identity";
 import { slugProblem } from "@/lib/hosts";
 import { createGuildInput, SLUG_MESSAGES } from "@/lib/validation";
 import { recordAudit } from "@/server/audit";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError } from "@/server/errors";
-import { createGuildWithDefaults } from "@/server/services/guilds";
+import { createGuildWithDefaults, sameIdentity } from "@/server/services/guilds";
 import { suggestSlugs } from "@/server/services/slug-suggestions";
 import { guildLookColumns } from "@/server/services/tabard";
 import type { SlugIdentity } from "@/lib/slug-suggestions";
@@ -90,20 +91,12 @@ export async function checkSlugAvailability(db: Db, raw: string, identity: SlugI
   return { available: false, reason: "That subdomain is taken", suggestions: await suggestSlugs(db, slug, identity) };
 }
 
-/** The guild holding this (name, region, faction, ruleset), compared case-insensitively like `guilds_identity_key`. */
+/** The guild holding this identity, compared case-insensitively like `guilds_identity_key`. */
 export async function findGuildByIdentity(db: Db, identity: GuildIdentity, exceptGuildId?: string) {
   const [row] = await db
     .select({ id: guilds.id, slug: guilds.slug, name: guilds.name, verifiedAt: guilds.verifiedAt })
     .from(guilds)
-    .where(
-      and(
-        sql`lower(${guilds.name}) = lower(${identity.name})`,
-        eq(guilds.region, identity.region),
-        eq(guilds.faction, identity.faction),
-        eq(guilds.ruleset, identity.ruleset),
-        exceptGuildId ? ne(guilds.id, exceptGuildId) : undefined,
-      ),
-    );
+    .where(and(sameIdentity(identity), exceptGuildId ? ne(guilds.id, exceptGuildId) : undefined));
   return row ?? null;
 }
 
@@ -142,6 +135,8 @@ export async function createGuildForUser(
         name: input.name,
         motto: input.motto,
         timezone: input.timezone,
+        gameVersion: input.gameVersion,
+        realmSlug: input.realmSlug,
         region: input.region,
         faction: input.faction,
         ruleset: input.ruleset,
@@ -163,7 +158,15 @@ export async function createGuildForUser(
           action: "guild.create",
           targetType: "guild",
           targetId: created.guild.id,
-          after: { slug: input.slug, name: input.name, region: input.region, faction: input.faction, ruleset: input.ruleset },
+          after: {
+            slug: input.slug,
+            name: input.name,
+            gameVersion: input.gameVersion,
+            realmSlug: input.realmSlug,
+            region: input.region,
+            faction: input.faction,
+            ruleset: input.ruleset,
+          },
         },
       );
       return { guild: created.guild, founderRank: top };
@@ -186,6 +189,8 @@ export async function listUserGuilds(db: Db, userId: string) {
       motto: guilds.motto,
       preset: guilds.preset,
       ...guildLookColumns,
+      gameVersion: guilds.gameVersion,
+      realmSlug: guilds.realmSlug,
       region: guilds.region,
       faction: guilds.faction,
       ruleset: guilds.ruleset,
@@ -222,12 +227,19 @@ export async function listUserGuilds(db: Db, userId: string) {
 }
 
 export interface DirectoryFilter {
+  /** Defaults to WoW: Forever: other versions are listed only when asked for. */
+  version?: SupportedGuildVersion;
+  /** Only for versions with realms. */
+  realm?: string;
   region?: Region;
   faction?: Faction;
   ruleset?: Ruleset;
 }
 
-/** Published guilds that opted in to the public directory, with active member counts: verified first, then largest. */
+/**
+ * Published guilds of one game version (WoW: Forever unless the filter asks for another) that opted in to the public
+ * directory, with active member counts: verified first, then largest.
+ */
 export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) {
   const rows = await db
     .select({
@@ -238,6 +250,8 @@ export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) 
       description: guilds.description,
       preset: guilds.preset,
       ...guildLookColumns,
+      gameVersion: guilds.gameVersion,
+      realmSlug: guilds.realmSlug,
       region: guilds.region,
       faction: guilds.faction,
       ruleset: guilds.ruleset,
@@ -250,6 +264,8 @@ export async function listDirectoryGuilds(db: Db, filter: DirectoryFilter = {}) 
       and(
         eq(guilds.directoryListed, true),
         isNotNull(guilds.publishedAt),
+        eq(guilds.gameVersion, filter.version ?? DEFAULT_GUILD_VERSION),
+        filter.realm ? eq(guilds.realmSlug, filter.realm) : undefined,
         filter.region ? eq(guilds.region, filter.region) : undefined,
         filter.faction ? eq(guilds.faction, filter.faction) : undefined,
         filter.ruleset ? eq(guilds.ruleset, filter.ruleset) : undefined,

@@ -9,6 +9,7 @@ import { sessionReachUrl } from "@/server/handoff";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { createRateLimiter } from "@/server/rate-limit";
 import { FACTIONS, REGIONS, RULESETS } from "@/lib/game";
+import { findRealm, SUPPORTED_GUILD_VERSIONS } from "@/lib/game-versions";
 import { checkSlugAvailability, createGuildForUser, type SlugAvailability } from "@/server/services/platform";
 
 const createLimiter = createRateLimiter({ limit: 5, windowMs: 10 * 60_000 });
@@ -20,15 +21,19 @@ const oneOf = <T extends string>(values: readonly T[], v: unknown): T | null =>
 /** Live availability for the create form; `identity` is what's chosen so far, for meaningful suggestions. */
 export async function checkSlugAction(
   slug: string,
-  identity: { region?: string; faction?: string; ruleset?: string } = {},
+  identity: { gameVersion?: string; realmSlug?: string; region?: string; faction?: string; ruleset?: string } = {},
 ): Promise<SlugAvailability> {
   const user = await getSessionUser();
   if (!user) return { available: false, reason: "Sign in to check availability" };
   if (!slugCheckLimiter(user.id).ok) return { available: false, reason: "Too many checks. Wait a moment." };
+  const gameVersion = oneOf(SUPPORTED_GUILD_VERSIONS, identity?.gameVersion);
+  const realm = gameVersion ? findRealm(gameVersion, String(identity?.realmSlug ?? "")) : null;
   return checkSlugAvailability(db, String(slug ?? "").slice(0, 64), {
+    gameVersion,
+    realmSlug: realm?.slug ?? null,
     region: oneOf(REGIONS, identity?.region),
     faction: oneOf(FACTIONS, identity?.faction),
-    ruleset: oneOf(RULESETS, identity?.ruleset),
+    ruleset: realm?.ruleset ?? oneOf(RULESETS, identity?.ruleset),
   });
 }
 

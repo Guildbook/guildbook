@@ -1,9 +1,11 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
-import { characters, memberships, users, vigilPreferences, vigilReports } from "@/db/schema";
+import { characters, guilds, memberships, users, vigilPreferences, vigilReports } from "@/db/schema";
 import { type Actor, assertCan } from "@/lib/authz/policy";
 import { tierAtLeast } from "@/lib/authz/tiers";
+import { type GuildVersion, VERSION_INFO, versionHasLaunched, versionLaunchLabel } from "@/lib/game-versions";
+import { reportGameVersion } from "@/lib/vigil/game-version";
 import { fightReportSchema, MAX_REPORT_BYTES, type FightReport } from "@/lib/vigil/report";
 import { canViewReport, VISIBILITIES, type Visibility } from "@/lib/vigil/visibility";
 import { recordAudit } from "@/server/audit";
@@ -32,11 +34,45 @@ export async function getVigilPreferences(db: Db, actor: Actor): Promise<{ defau
   return { defaultVisibility: row?.defaultVisibility ?? "private" };
 }
 
+/** A log from another game than the guild's, refused once WoW: Forever is live. */
+export class VersionMismatchError extends DomainError {
+  readonly code = "version_mismatch";
+}
+
+export interface ReportVersionCheck {
+  /** The game the log came from, when the log says. */
+  gameVersion: GuildVersion | null;
+  versionMismatch: boolean;
+  /** Shown to the uploader when the report was kept despite the mismatch. */
+  warning: string | null;
+}
+
+/**
+ * Whether a report's game matches its guild. Until WoW: Forever launches, Forever guilds test with logs from other
+ * games, so a mismatch is kept with a warning; from launch day it is refused.
+ */
+export function checkReportVersion(
+  report: FightReport,
+  guild: { name: string; gameVersion: GuildVersion },
+  now: Date = new Date(),
+): ReportVersionCheck {
+  const gameVersion = reportGameVersion(report);
+  if (!gameVersion || gameVersion === guild.gameVersion) return { gameVersion, versionMismatch: false, warning: null };
+  const log = VERSION_INFO[gameVersion].label;
+  const mismatch = `This log is from ${log}; ${guild.name} is a ${VERSION_INFO[guild.gameVersion].label} guild.`;
+  if (versionHasLaunched("forever", now)) throw new VersionMismatchError(`${mismatch} Pair Vigil with your ${log} guild.`);
+  return {
+    gameVersion,
+    versionMismatch: true,
+    warning: `${mismatch} The report was saved with a warning. From ${versionLaunchLabel("forever")}, Vigil refuses logs from another game, so pair Vigil with your ${log} guild.`,
+  };
+}
+
 /**
  * Stores one fight's summary. Creation is not audited: the audit log is officer-visible and a private
  * report must not leave a trace officers can read.
  */
-export async function createVigilReport(db: Db, actor: Actor, raw: unknown) {
+export async function createVigilReport(db: Db, actor: Actor, raw: unknown, now: Date = new Date()) {
   assertCan(actor, "vigil.use");
   const membershipId = requireMembership(actor);
   const input = createInput.parse(raw);
@@ -48,6 +84,9 @@ export async function createVigilReport(db: Db, actor: Actor, raw: unknown) {
   const report = parsed.data;
 
   return db.transaction(async (tx) => {
+    const [guild] = await tx.select({ name: guilds.name, gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, actor.guildId));
+    if (!guild) throw new NotFoundError("Guild");
+    const check = checkReportVersion(report, guild, now);
     if (input.characterId) {
       const [own] = await tx
         .select({ id: characters.id })
@@ -78,11 +117,13 @@ export async function createVigilReport(db: Db, actor: Actor, raw: unknown) {
         durationMs: report.fight.durationMs,
         modelId: report.model?.id ?? null,
         score: report.score.overall,
+        gameVersion: check.gameVersion,
+        versionMismatch: check.versionMismatch,
         summary: report,
       })
       .returning({ id: vigilReports.id });
     if (!row) throw new Error("Insert failed");
-    return row;
+    return { ...row, ...check };
   });
 }
 
@@ -98,6 +139,8 @@ const listColumns = {
   durationMs: vigilReports.durationMs,
   modelId: vigilReports.modelId,
   score: vigilReports.score,
+  gameVersion: vigilReports.gameVersion,
+  versionMismatch: vigilReports.versionMismatch,
   createdAt: vigilReports.createdAt,
   characterName: characters.name,
   characterSurname: characters.surname,

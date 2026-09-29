@@ -155,6 +155,7 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
             defaultDiscord={viewer.user.name ?? ""}
             guildName={guild.name}
             faithPledge={order}
+            gameVersion={guild.gameVersion}
           />
         </Panel>
       )}

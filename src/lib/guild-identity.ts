@@ -1,11 +1,14 @@
 import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
+import { type GuildVersion, realmLabel, VERSION_INFO } from "@/lib/game-versions";
 
 /**
- * A guild's identity on Guildbook is (name, region, faction, ruleset): Battle.net regions are separate worlds,
- * WoW: Forever has no realms, each ruleset is its own world, and factions can't share a guild, so the same name can
- * exist once per region, faction and ruleset.
+ * A guild's identity on Guildbook is (game version, name, region, realm, faction, ruleset). Game versions and
+ * Battle.net regions are separate worlds. WoW: Forever has no realms (`realmSlug` is null) and each ruleset is its own
+ * world; TBC Anniversary guilds live on a realm, whose type sets the ruleset. Factions can't share a guild.
  */
 export interface GuildIdentity {
+  gameVersion: GuildVersion;
+  realmSlug: string | null;
   name: string;
   region: Region;
   faction: Faction;
@@ -30,7 +33,17 @@ export function sameGuildName(a: string, b: string): boolean {
   return normalizeGuildName(a) === normalizeGuildName(b);
 }
 
-export function describeIdentity(identity: Pick<GuildIdentity, "region" | "faction" | "ruleset">): string {
+type DescribedIdentity = Pick<GuildIdentity, "region" | "faction" | "ruleset"> & Partial<Pick<GuildIdentity, "gameVersion" | "realmSlug">>;
+
+/**
+ * "Americas, Horde, Normal" for a WoW: Forever guild; "TBC Anniversary, Dreamscythe (US), Horde" for a guild on a
+ * realm, whose ruleset the realm implies.
+ */
+export function describeIdentity(identity: DescribedIdentity): string {
+  const version = identity.gameVersion ?? "forever";
+  if (VERSION_INFO[version].realms && identity.realmSlug) {
+    return `${VERSION_INFO[version].label}, ${realmLabel(version, identity.realmSlug, identity.region)}, ${FACTION_LABELS[identity.faction]}`;
+  }
   return `${REGION_LABELS[identity.region]}, ${FACTION_LABELS[identity.faction]}, ${RULESET_INFO[identity.ruleset].label}`;
 }
 

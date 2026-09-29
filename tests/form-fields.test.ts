@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { humanizeField } from "@/components/action-form";
-import { createGuildInput, guildSettingsInput } from "@/lib/validation";
+import { createAnniversaryGuild, createForeverGuild, guildSettingsInput } from "@/lib/validation";
 
 vi.mock("@/server/actions/platform", () => ({ checkSlugAction: vi.fn(), createGuildAction: vi.fn() }));
 
@@ -19,9 +19,15 @@ function expectFieldsCovered(markup: string, fields: string[], labels: Record<st
 }
 
 describe("server-validated fields have somewhere to show their errors", () => {
-  it("covers every createGuildInput field in the create form", () => {
-    const markup = renderToStaticMarkup(createElement(CreateGuildForm, { hostPrefix: "", hostSuffix: ".guildbook.io" }));
-    expectFieldsCovered(markup, Object.keys(createGuildInput.shape), CREATE_GUILD_LABELS);
+  it("covers every createGuildInput field in the create form, for each game version", () => {
+    const forever = renderToStaticMarkup(createElement(CreateGuildForm, { hostPrefix: "", hostSuffix: ".guildbook.io" }));
+    expectFieldsCovered(forever, Object.keys(createForeverGuild.in.shape), CREATE_GUILD_LABELS);
+    expect(forever).not.toContain('name="realmSlug"');
+    const anniversary = renderToStaticMarkup(
+      createElement(CreateGuildForm, { hostPrefix: "", hostSuffix: ".guildbook.io", initialVersion: "anniversary" }),
+    );
+    expectFieldsCovered(anniversary, Object.keys(createAnniversaryGuild.in.shape), CREATE_GUILD_LABELS);
+    expect(anniversary).not.toContain('name="ruleset"');
   });
 
   it("covers every guildSettingsInput field in the guild settings form", () => {
@@ -33,6 +39,8 @@ describe("server-validated fields have somewhere to show their errors", () => {
           motto: null,
           description: "",
           timezone: "America/New_York",
+          gameVersion: "forever",
+          realmSlug: null,
           region: "us",
           faction: "alliance",
           ruleset: "normal",
@@ -44,7 +52,41 @@ describe("server-validated fields have somewhere to show their errors", () => {
         },
       }),
     );
-    expectFieldsCovered(markup, Object.keys(guildSettingsInput.shape), GUILD_SETTINGS_LABELS);
+    expectFieldsCovered(
+      markup,
+      Object.keys(guildSettingsInput.shape).filter((f) => f !== "realmSlug"),
+      GUILD_SETTINGS_LABELS,
+    );
+  });
+
+  it("covers the realm instead of the ruleset for a guild on a realm", () => {
+    const markup = renderToStaticMarkup(
+      createElement(GuildSettingsForm, {
+        action: vi.fn(),
+        guild: {
+          name: "Mirkwood",
+          motto: null,
+          description: "",
+          timezone: "America/New_York",
+          gameVersion: "anniversary",
+          realmSlug: "dreamscythe",
+          region: "us",
+          faction: "horde",
+          ruleset: "normal",
+          discordInviteUrl: null,
+          recruitmentOpen: true,
+          directoryListed: false,
+          lootPublic: false,
+          verifiedAt: null,
+        },
+      }),
+    );
+    expectFieldsCovered(
+      markup,
+      Object.keys(guildSettingsInput.shape).filter((f) => f !== "ruleset"),
+      GUILD_SETTINGS_LABELS,
+    );
+    expect(markup).not.toContain('name="ruleset"');
   });
 
   it("humanizes fields a form didn't label", () => {

@@ -36,7 +36,8 @@ export const ROLE_LABELS: Record<RaidRole, string> = {
   ranged: "Ranged DPS",
 };
 
-export const fullName = (name: string, surname: string) => `${name} ${surname}`;
+/** "Name Surname", or just the name where the game has no surnames (anything but WoW: Forever). */
+export const fullName = (name: string, surname: string | null | undefined) => (surname ? `${name} ${surname}` : name);
 
 export const FACTIONS = ["alliance", "horde"] as const;
 export type Faction = (typeof FACTIONS)[number];
