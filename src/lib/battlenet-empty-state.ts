@@ -42,6 +42,16 @@ function launchNote(now: Date, version: GuildVersion): string {
     : "World of Warcraft: Forever launches on Nov 4, 2026. Once you've made your character there, refresh your characters or reconnect.";
 }
 
+/**
+ * The status line after refreshing Battle.net characters. `eligible` is how many the guild accepts (the same list the
+ * page offers for import), never the whole snapshot, which also holds other games' characters.
+ */
+export function refreshSummary(eligible: number, version: GuildVersion = "forever"): string {
+  const label = VERSION_INFO[version].label;
+  if (eligible === 0) return `Characters refreshed: no ${label} characters can join this guild.`;
+  return `Found ${plural(eligible, `${label} character`)} for this guild.`;
+}
+
 /** Why a linked account offers this guild no characters, saying what the account does have. */
 export function emptySnapshotMessage(input: EmptySnapshotInput): string {
   const { battletag, status, scan, guildFaction, guildRegion, now } = input;

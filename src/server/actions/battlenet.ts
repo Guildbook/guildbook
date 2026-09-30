@@ -2,10 +2,12 @@
 
 import { refresh } from "next/cache";
 import { db } from "@/db";
+import { refreshSummary } from "@/lib/battlenet-empty-state";
 import { fullName } from "@/lib/game";
 import { getBattlenetDeps, getBlizzardClient } from "@/server/blizzard";
 import { type ActionResult, runAction } from "@/server/action";
 import {
+  getEligibleCharacters,
   importBattlenetCharacter,
   refreshBattlenetSnapshot,
   syncGuildCharacters,
@@ -26,11 +28,11 @@ export async function unlinkBattlenetAction(slug: string, _prev: Prev): Promise<
 }
 
 export async function refreshBattlenetAction(slug: string, _prev: Prev): Promise<ActionResult> {
-  return runAction(slug, async ({ viewer }) => {
-    const snapshot = await refreshBattlenetSnapshot(db, viewer.actor, getBattlenetDeps());
+  return runAction(slug, async ({ guild, viewer }) => {
+    await refreshBattlenetSnapshot(db, viewer.actor, getBattlenetDeps());
+    const { characters: eligible } = await getEligibleCharacters(db, viewer.actor);
     refresh();
-    const n = snapshot.characters.length;
-    return `Found ${n} WoW: Forever ${n === 1 ? "character" : "characters"}.`;
+    return refreshSummary(eligible.length, guild.gameVersion);
   });
 }
 

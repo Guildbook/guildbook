@@ -8,7 +8,15 @@ describe("detectGameVersion", () => {
     expect(detectGameVersion({ projectId: 5, build: null, flavor: "_classic_era_" }).version).toBe("anniversary");
   });
 
-  it("needs the install folder to tell Forever from Classic Era", () => {
+  it("reads WoW: Forever from its project id (18) or its 1.60 build", () => {
+    expect(detectGameVersion({ projectId: 18, build: "1.60.1" })).toEqual({ version: "forever", source: "header" });
+    expect(detectGameVersion({ projectId: null, build: "1.60.1" })).toEqual({ version: "forever", source: "header" });
+    expect(detectGameVersion({ projectId: 18, build: "1.60.1", flavor: "_classic_era_" }).version).toBe("forever");
+    expect(detectGameVersion({ projectId: 2, build: "1.60.1" }).version).toBeNull();
+    expect(detectGameVersion({ projectId: 2, build: "1.15.7", flavor: "_classic_era_" }).version).toBe("era");
+  });
+
+  it("needs the install folder to tell a 1.15 Forever beta from Classic Era", () => {
     expect(detectGameVersion({ projectId: 2, build: "1.15.7" })).toEqual({ version: null, source: null });
     expect(detectGameVersion({ projectId: 2, build: "1.15.7", flavor: "_classic_era_" })).toEqual({ version: "era", source: "folder" });
     expect(detectGameVersion({ projectId: 2, build: "1.15.8", flavor: "_classic_beta_" })).toEqual({ version: "forever", source: "folder" });
@@ -47,6 +55,7 @@ describe("reportGameVersion", () => {
     expect(reportGameVersion({ gameVersion: "forever", log: { build: "2.5.6", projectId: 5 } })).toBe("forever");
     expect(reportGameVersion({ log: { build: "2.5.6", projectId: 5 } })).toBe("anniversary");
     expect(reportGameVersion({ log: { build: "1.15.7", projectId: 2, flavor: "_classic_era_" } })).toBe("era");
+    expect(reportGameVersion({ log: { build: "1.60.1", projectId: 18 } })).toBe("forever");
     expect(reportGameVersion({ log: { build: null, projectId: null } })).toBeNull();
   });
 });

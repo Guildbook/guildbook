@@ -1,11 +1,11 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { chooseOption, randomCharacterName, signIn } from "./helpers";
 
 // Runs against BATTLENET_MOCK=1: linking skips Battle.net and returns fixture characters
 // (Aldric, Brenna and Corwin for the Alliance; a Horde warrior, a Death Knight and Isolde, who is in
 // the EU region while the seeded guilds are in the Americas, are filtered out).
 
-async function fillFreeText(page: Page, discord: string) {
+async function fillFreeText(page: Page | Locator, discord: string) {
   await page.getByLabel("Raid experience").fill("Healed Molten Core and Blackwing Lair in Classic.");
   await page.getByLabel("Availability").fill("Tuesdays and Thursdays, 8-11 PM Eastern.");
   await page.getByLabel("Why the Order of Saint Michael?").fill("Faithful company and steady progression.");
@@ -24,24 +24,26 @@ test("an applicant links Battle.net, picks a character, and the officer sees it 
   await expect(page).not.toHaveURL(/bnet=/);
   await expect(page.getByTestId("battlenet-account")).toContainText(/Pilgrim#\d{4}/);
 
-  await expect(page.getByRole("radio", { name: /Aldric/ })).toBeChecked();
-  await expect(page.getByRole("radio", { name: /Grukk/ })).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: /Mortis/ })).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: /Isolde/ })).toHaveCount(0);
+  // Once another test has verified the guild, Aldric (in the in-game guild) is also offered a one-click join above the form.
+  const application = page.getByRole("main").locator("section", { has: page.getByRole("button", { name: "Submit application" }) });
+  await expect(application.getByRole("radio", { name: /Aldric/ })).toBeChecked();
+  await expect(application.getByRole("radio", { name: /Grukk/ })).toHaveCount(0);
+  await expect(application.getByRole("radio", { name: /Mortis/ })).toHaveCount(0);
+  await expect(application.getByRole("radio", { name: /Isolde/ })).toHaveCount(0);
   // A click that lands before hydration is reset by React, so retry until the form follows the choice.
   await expect(async () => {
-    await page.getByRole("radio", { name: /Brenna/ }).check();
-    await expect(page.getByLabel("First name")).toHaveValue("Brenna", { timeout: 1000 });
+    await application.getByRole("radio", { name: /Brenna/ }).check();
+    await expect(application.getByLabel("First name")).toHaveValue("Brenna", { timeout: 1000 });
   }).toPass();
-  await expect(page.getByLabel("First name")).toHaveAttribute("readonly", "");
-  await expect(page.getByLabel("Level", { exact: true })).toHaveValue("42");
-  await expect(page.getByLabel("Class", { exact: true })).toHaveValue("Priest");
-  await expect(page.getByLabel("Realm", { exact: true })).toHaveCount(0);
-  await page.getByLabel("Surname").fill(surname);
-  await chooseOption(page.getByLabel("Spec", { exact: true }), "Holy");
-  await chooseOption(page.getByLabel("Raid role", { exact: true }), "healer");
-  await fillFreeText(page, applicantId);
-  await page.getByRole("button", { name: "Submit application" }).click();
+  await expect(application.getByLabel("First name")).toHaveAttribute("readonly", "");
+  await expect(application.getByLabel("Level", { exact: true })).toHaveValue("42");
+  await expect(application.getByLabel("Class", { exact: true })).toHaveValue("Priest");
+  await expect(application.getByLabel("Realm", { exact: true })).toHaveCount(0);
+  await application.getByLabel("Surname").fill(surname);
+  await chooseOption(application.getByLabel("Spec", { exact: true }), "Holy");
+  await chooseOption(application.getByLabel("Raid role", { exact: true }), "healer");
+  await fillFreeText(application, applicantId);
+  await application.getByRole("button", { name: "Submit application" }).click();
   await expect(page.getByRole("heading", { name: "Your application" })).toBeInViewport();
   await expect(page.getByText("before applying.")).toHaveCount(0);
   await expect(page.getByRole("main").getByRole("img", { name: "Verified via Battle.net" })).toBeVisible();
