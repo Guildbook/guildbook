@@ -46,11 +46,11 @@ export function ConfirmedJoinForm({
         Level {character.level} {character.race} {CLASS_INFO[character.wowClass].label}
       </p>
       {askSurname && (
-        <Field label="Surname" name="surname" hint="Battle.net doesn't provide surnames yet, so enter yours.">
-          <input id="surname" name="surname" className="field" required maxLength={12} autoComplete="off" />
+        <Field label="Surname" name="surname" htmlFor="confirmed-join-surname" hint="Battle.net doesn't provide surnames yet, so enter yours.">
+          <input id="confirmed-join-surname" name="surname" className="field" required maxLength={12} autoComplete="off" />
         </Field>
       )}
-      <ClassSpecFields lockedClass={character.wowClass} showFaction={false} />
+      <ClassSpecFields lockedClass={character.wowClass} showFaction={false} idPrefix="confirmed-join-" />
       <div>
         <label className="flex items-start gap-3 text-sm">
           <input type="checkbox" name="respectsFaith" className="mt-1 h-5 w-5 accent-crimson" required data-testid="confirmed-join-charter" />

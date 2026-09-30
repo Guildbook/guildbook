@@ -232,17 +232,20 @@ export function SubmitButton({
 export function Field({
   label,
   name,
+  htmlFor,
   children,
   hint,
 }: {
   label: string;
   name: string;
+  /** The control's id when it isn't `name`, e.g. when two forms on one page have the same fields. */
+  htmlFor?: string;
   children: ReactNode;
   hint?: string;
 }) {
   return (
     <div>
-      <label htmlFor={name} className="field-label">
+      <label htmlFor={htmlFor ?? name} className="field-label">
         {label}
       </label>
       {children}
