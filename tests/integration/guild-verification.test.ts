@@ -10,6 +10,7 @@ import {
   getSlugClaim,
   guildMasterHandover,
   promoteVerifiedGuildMaster,
+  recheckAdminStanding,
   recheckVerifiedGuilds,
   recordFounderStanding,
   verifyGuild,
@@ -536,6 +537,25 @@ describe("TBC Anniversary guilds", () => {
     const recorded = await row(guild.guild.id);
     expect(recorded.setup.founderNotGm).toMatchObject({ rank: 2 });
     expect(recorded.setup.inviteCode).toBeTruthy();
+  });
+
+  it("re-checks an admin who links Battle.net after founding the guild, and skips non-admins", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm: founder } = await annGuild();
+    const name = guild.guild.name;
+    expect((await recordFounderStanding(db, guild.guild.id, founder.userId, bnet.client(), AFTER_LAUNCH)).status).toBe("unknown");
+
+    bnet.realmTypes.set("dreamscythe", "NORMAL");
+    const mine = bnet.character({ id: ++seq, name: `Member${seq}`, realm: "dreamscythe", faction: "horde", version: "anniversary", guild: { name, realm: "dreamscythe", faction: "horde" } });
+    bnet.roster("dreamscythe", name, [[mine.id, 4]]);
+    await link(founder.userId, [mine]);
+
+    const raider = await createMember(db, guild, "Officer");
+    expect((await recheckAdminStanding(db, { ...raider, tier: "officer" }, bnet.client(), AFTER_LAUNCH)).status).toBe("unknown");
+    expect((await row(guild.guild.id)).setup.founderNotGm).toBeUndefined();
+
+    expect(await recheckAdminStanding(db, founder, bnet.client(), AFTER_LAUNCH)).toMatchObject({ status: "member", rank: 4 });
+    expect((await row(guild.guild.id)).setup.founderNotGm).toMatchObject({ characterName: mine.name, rank: 4 });
   });
 
   it("records nothing for a founder who is the in-game Guild Master", async () => {

@@ -835,6 +835,20 @@ export async function recordFounderStanding(
   return { status: "member", ...member };
 }
 
+/**
+ * `recordFounderStanding` for an admin of an unverified guild whose Battle.net characters just changed (link, refresh,
+ * import): a founder who links Battle.net only after creating the guild is otherwise never checked. Best effort.
+ */
+export async function recheckAdminStanding(db: Db, actor: Actor, client: BlizzardClient, now = new Date()): Promise<FounderStanding> {
+  if (actor.tier !== "admin" || !actor.userId) return { status: "unknown" };
+  try {
+    return await recordFounderStanding(db, actor.guildId, actor.userId, client, now);
+  } catch (err) {
+    console.warn(`[guild.standing] admin standing check failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    return { status: "unknown" };
+  }
+}
+
 /** The verified Guild Master's membership when it isn't on the guild's top rank yet, for the hand-over offer. */
 export async function guildMasterHandover(db: Db, guild: Pick<GuildRow, "id" | "verifiedAt" | "verifiedUserId" | "verifiedCharacterName">) {
   if (!guild.verifiedAt || !guild.verifiedUserId) return null;

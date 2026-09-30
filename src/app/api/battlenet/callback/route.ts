@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { getBattlenetDeps } from "@/server/blizzard";
+import { getBattlenetDeps, getBlizzardClient } from "@/server/blizzard";
 import {
   type LinkStatus,
   OAUTH_COOKIE,
@@ -14,6 +14,7 @@ import { getGuild, getViewer } from "@/server/context";
 import { DomainError } from "@/server/errors";
 import { guildOrigin, hostFromRequest, validateDestination } from "@/server/hosts";
 import { linkBattlenetAccount } from "@/server/services/battlenet";
+import { recheckAdminStanding } from "@/server/services/guild-verification";
 
 function sameState(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await linkBattlenetAccount(db, viewer.actor, { code, redirectUri: redirectUriFor(current.origin) }, getBattlenetDeps());
+    await recheckAdminStanding(db, viewer.actor, getBlizzardClient());
     return finish(returnTo, "linked");
   } catch (err) {
     if (err instanceof DomainError) return finish(returnTo, "taken");
