@@ -281,6 +281,7 @@ export async function importBattlenetCharacter(
         syncedAt: link.snapshotAt,
         isMain: makeMain,
         ...(inGuildConfirmedAt !== undefined ? { inGuildConfirmedAt } : {}),
+        ...(inGuildConfirmedAt ? { inGuildLostAt: null } : {}),
       };
       const [saved] = existing
         ? await tx
@@ -345,6 +346,8 @@ export interface SyncSummary {
   updated: number;
   unchanged: number;
   missing: number;
+  /** Characters confirmed in the in-game guild before this sync that Battle.net now shows outside it. */
+  leftGuild: number;
   changes: { characterName: string; level?: [number, number]; wowClass?: [string, string] }[];
 }
 
@@ -374,7 +377,14 @@ export async function runGuildCharacterSync(
     )
     .orderBy(asc(characters.name));
   const [guild] = await db
-    .select({ region: guilds.region, gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, name: guilds.name, faction: guilds.faction })
+    .select({
+      region: guilds.region,
+      gameVersion: guilds.gameVersion,
+      realmSlug: guilds.realmSlug,
+      name: guilds.name,
+      faction: guilds.faction,
+      adminNotice: guilds.adminNotice,
+    })
     .from(guilds)
     .where(eq(guilds.id, guildId));
   const region = guild?.region ?? "us";
@@ -387,7 +397,8 @@ export async function runGuildCharacterSync(
     if (members) roster = new Map(members.map((m) => [m.id, m]));
   }
 
-  const summary: SyncSummary = { checked: rows.length, updated: 0, unchanged: 0, missing: 0, changes: [] };
+  const summary: SyncSummary = { checked: rows.length, updated: 0, unchanged: 0, missing: 0, leftGuild: 0, changes: [] };
+  const left: string[] = [];
   for (const row of rows) {
     const fromRoster = roster?.get(row.bnetCharacterId!);
     const profile = fromRoster
@@ -400,7 +411,15 @@ export async function runGuildCharacterSync(
     }
     const change: SyncSummary["changes"][number] = { characterName: fullName(row.name, row.surname) };
     const set: Partial<typeof characters.$inferInsert> = { syncedAt: new Date() };
-    if (profile && guild) set.inGuildConfirmedAt = profileInGuild(profile, guild) ? new Date() : null;
+    if (profile && guild) {
+      const inGuild = profileInGuild(profile, guild);
+      set.inGuildConfirmedAt = inGuild ? new Date() : null;
+      if (inGuild) set.inGuildLostAt = null;
+      else if (row.inGuildConfirmedAt && !row.inGuildLostAt) {
+        set.inGuildLostAt = new Date();
+        left.push(fullName(row.name, row.surname));
+      }
+    }
     if (found.level !== row.level) {
       set.level = found.level;
       change.level = [row.level, found.level];
@@ -421,6 +440,16 @@ export async function runGuildCharacterSync(
     } else {
       summary.unchanged++;
     }
+  }
+
+  summary.leftGuild = left.length;
+  if (left.length > 0 && guild) {
+    const names = left.length > 5 ? `${left.slice(0, 5).join(", ")} and ${left.length - 5} more` : left.join(", ");
+    const notice = `Battle.net no longer shows ${names} in ${guild.name} in game. Their memberships are unchanged; review them under Members.`;
+    await db
+      .update(guilds)
+      .set({ adminNotice: guild.adminNotice ? `${notice}\n\n${guild.adminNotice}` : notice })
+      .where(eq(guilds.id, guildId));
   }
 
   await recordAudit(db, { guildId, userId: actorUserId, membershipId: null, tier: "public" }, {

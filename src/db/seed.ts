@@ -142,7 +142,7 @@ async function seedLoot(
 ) {
   await db
     .insert(wowItems)
-    .values(SEED_ITEMS.map((i) => ({ ...i, nameSource: "import" as const, detailsSource: "import" as const })))
+    .values(SEED_ITEMS.map((i) => ({ ...i, gameVersion: "forever" as const, nameSource: "import" as const, detailsSource: "import" as const })))
     .onConflictDoNothing();
   const names = new Map(SEED_ITEMS.map((i) => [i.itemId, i.name]));
   const member = new Map(SEED_MEMBERS.map((m) => [m.name, m]));

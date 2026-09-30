@@ -63,7 +63,7 @@ export function LootTable({
                   )}
                   <td className="py-2 pr-4">
                     <div className={reversed ? "line-through opacity-60" : undefined}>
-                      <ItemLink itemId={row.itemId} name={row.itemName} quality={row.quality} icon={row.icon} />
+                      <ItemLink itemId={row.itemId} name={row.itemName} quality={row.quality} icon={row.icon} gameVersion={row.gameVersion} />
                     </div>
                     {row.reversal && (
                       <p className="mt-1 text-xs text-muted">

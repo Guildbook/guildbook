@@ -92,6 +92,19 @@ export const applicationInputFor = (guild: { preset: string; gameVersion?: Guild
     .superRefine(refineSpec);
 export type ApplicationInput = z.infer<ReturnType<typeof applicationInputFor>>;
 
+/** Joining without review as a member Battle.net confirms in the in-game guild: the charter pledge still applies. */
+export const confirmedJoinInputFor = (guild: { preset: string }) =>
+  z.object({
+    bnetCharacterId,
+    surname: characterSurname.optional(),
+    spec: required("Spec", 40),
+    role: z.enum(ROLES),
+    respectsFaith: checkbox.refine(
+      (v) => v,
+      guild.preset === "order" ? "You must agree to respect the faith and the charter" : "You must agree to keep the charter",
+    ),
+  });
+
 export const applicationDecision = z.object({
   applicationId: uuid,
   decision: z.enum(["accepted", "trial", "declined"]),
@@ -158,6 +171,15 @@ export const rankDefaultsInput = z.object({
 });
 
 export const assignRankInput = z.object({ membershipId: uuid, rankId: uuid });
+
+/** An empty rank means the accepted-applicant rank. */
+export const confirmedJoinSettingsInput = z.object({
+  autoApproveInGuild: checkbox,
+  autoApproveRankId: z
+    .union([uuid, z.literal("")])
+    .optional()
+    .transform((v) => (v ? v : null)),
+});
 
 // --- Guild settings --------------------------------------------------------
 

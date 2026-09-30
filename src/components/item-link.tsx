@@ -1,4 +1,5 @@
 import Image from "next/image";
+import type { GuildVersion } from "@/lib/game-versions";
 import { ITEM_QUALITY_INFO, type ItemQuality } from "@/lib/loot/constants";
 import { itemIconUrl, wowheadItemUrl } from "@/lib/loot/items";
 
@@ -11,6 +12,7 @@ export function ItemLink({
   name,
   quality,
   icon,
+  gameVersion,
   size = 20,
   className = "",
 }: {
@@ -18,6 +20,8 @@ export function ItemLink({
   name: string;
   quality: ItemQuality | null;
   icon?: string | null;
+  /** The guild's version: which Wowhead database the link opens. */
+  gameVersion?: GuildVersion;
   size?: number;
   className?: string;
 }) {
@@ -26,7 +30,7 @@ export function ItemLink({
   const style = quality !== null && quality > 1 ? { color: ITEM_QUALITY_INFO[quality].color } : undefined;
   return (
     <a
-      href={wowheadItemUrl(itemId)}
+      href={wowheadItemUrl(itemId, gameVersion)}
       target="_blank"
       rel="noopener noreferrer"
       className={`inline-flex items-center gap-2 font-medium hover:underline ${tone} ${className}`}

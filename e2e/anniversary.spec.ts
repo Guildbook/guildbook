@@ -39,7 +39,7 @@ async function createAnniversaryGuild(page: Page, roles: string, realm = "dreams
   await page.getByRole("button", { name: "Create guild" }).click();
   const site = guildOrigin(slug);
   await page.waitForURL(`${site}/admin/setup`);
-  return { name, site };
+  return { name, site, tag };
 }
 
 async function linkBattlenet(page: Page, site: string) {
@@ -127,5 +127,55 @@ test.describe("TBC Anniversary", () => {
     await expect(result).toContainText("Nightslayer");
     await expect(result).toContainText("Dreamscythe");
     await expect(page.getByRole("banner").getByTestId("verified-seal")).toHaveCount(0);
+  });
+
+  test("a member of the verified in-game guild joins in one click after accepting the charter", async ({ page }, info) => {
+    const shoot = SHOTS && info.project.name === "desktop";
+    const { site, tag } = await createAnniversaryGuild(page, "ann-gm");
+    await linkBattlenet(page, site);
+    const verify = await checkVerification(page, site);
+    await expect(verify.getByRole("status").filter({ hasText: "Your guild is verified." })).toBeVisible();
+
+    // Automatic approval is on by default and joins at the accepted-applicant rank.
+    const setting = page.getByTestId("auto-approve-toggle");
+    await expect(setting).toBeChecked();
+    const panel = setting.locator("xpath=ancestor::section[1]");
+    await expect(panel.getByLabel("Rank they join at")).toContainText("Same as accepted applicants");
+    if (shoot) await panel.screenshot({ path: `${SHOTS}/confirmed-join-setting.png` });
+
+    // The guild is still a draft, so the member comes in through the private invite link.
+    await page.goto(`${site}/admin/setup`);
+    await page.getByRole("button", { name: "Create invite link" }).click();
+    const invite = (await page.getByTestId("draft-invite").locator(".font-mono").textContent())!.trim();
+
+    await page.context().clearCookies();
+    await page.goto(`${APEX}/login?callbackUrl=${encodeURIComponent(invite)}`);
+    const form = page.getByTestId("test-login-other");
+    await form.getByPlaceholder("Discord ID").fill(`e2e-ann-member-ann-guild-${tag}`);
+    await form.getByPlaceholder("Name").fill(`Member ${tag}`);
+    await form.getByRole("button", { name: "Test sign in" }).click();
+    await page.waitForURL((url) => url.pathname === "/apply");
+    await page.getByRole("link", { name: "Link Battle.net" }).click();
+    await expect(page.getByTestId("battlenet-account")).toContainText(/Pilgrim#\d{4}/);
+
+    const join = page.getByTestId("confirmed-join");
+    await expect(join).toContainText("Mattaeis");
+    await expect(join).toContainText(`<Mirkwood ${tag}>`);
+    await expect(page.getByText("Or send an application for review instead")).toBeVisible();
+    await chooseOption(join.getByLabel("Spec"), "Marksmanship");
+    await chooseOption(join.getByLabel("Raid role"), "ranged");
+    if (shoot) await join.locator("xpath=ancestor::section[1]").screenshot({ path: `${SHOTS}/confirmed-join-offer.png` });
+
+    // The charter must be accepted first.
+    await join.getByRole("button", { name: "Join as a member" }).click();
+    await expect(page).toHaveURL(/\/apply/);
+    await join.getByTestId("confirmed-join-charter").check();
+    await join.getByRole("button", { name: "Join as a member" }).click();
+    await page.waitForURL(`${site}/members`);
+    await expect(page.getByText(/Welcome to Mirkwood .*Mattaeis joined as/).first()).toBeVisible();
+
+    await page.goto(`${site}/members/characters`);
+    const card = page.getByRole("main").locator("li", { has: page.getByTestId("guild-member-tag") }).filter({ hasText: "Mattaeis" });
+    await expect(card.getByTestId("guild-member-tag")).toHaveText("Verified member");
   });
 });

@@ -9,6 +9,7 @@ import { DomainError } from "@/server/errors";
 import { getDomainProvider } from "@/server/vercel-domains";
 import { CLASS_INFO, DAYS_OF_WEEK, fullName, ROLE_LABELS } from "@/lib/game";
 import { reviewApplication } from "@/server/services/applications";
+import { updateConfirmedJoinSettings } from "@/server/services/confirmed-members";
 import {
   createBoss,
   createInstance,
@@ -108,6 +109,14 @@ export async function updateGuildSettingsAction(slug: string, _prev: Prev, fd: F
     const { unverified } = await updateGuildSettings(db, viewer.actor, obj(fd));
     refresh();
     return unverified ? "Guild settings saved. The guild's identity changed, so it is no longer verified." : "Guild settings saved.";
+  });
+}
+
+export async function updateConfirmedJoinSettingsAction(slug: string, _prev: Prev, fd: FormData): Promise<ActionResult> {
+  return runAction(slug, async ({ viewer }) => {
+    const s = await updateConfirmedJoinSettings(db, viewer.actor, obj(fd));
+    refresh();
+    return s.autoApproveInGuild ? "Members confirmed in game now join without review." : "Members confirmed in game now apply for review like everyone else.";
   });
 }
 

@@ -1,8 +1,8 @@
-import { and, asc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
-import { wowItems } from "@/db/schema";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { legacyWowItems, wowItems } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { type ItemDataSource, type ItemQuality, isItemQuality } from "@/lib/loot/constants";
-import { type GuildVersion, isSupportedVersion, type SupportedGuildVersion } from "@/lib/game-versions";
+import { type GuildVersion, isSupportedVersion } from "@/lib/game-versions";
 import type { BlizzardClient } from "@/server/blizzard/client";
 
 /** Blizzard's API terms: cached Game Data must be refreshed or deleted within 30 days. */
@@ -23,6 +23,7 @@ export interface KnownItem {
   name: string;
   quality: ItemQuality | null;
   icon: string | null;
+  itemLevel: number | null;
   /** True when the name or details shown came from Blizzard's API, which then needs attributing. */
   fromBlizzard: boolean;
 }
@@ -35,6 +36,7 @@ function toKnown(r: Row): KnownItem {
     name: r.name,
     quality: isItemQuality(r.quality) ? r.quality : null,
     icon: r.icon,
+    itemLevel: r.itemLevel,
     fromBlizzard: r.nameSource === "blizzard" || r.detailsSource === "blizzard",
   };
 }
@@ -46,10 +48,15 @@ export interface ItemFact {
 }
 
 /**
- * Records item names and qualities seen in imports, the addon or officer entry. These sources win over Blizzard's
- * API: they replace a Blizzard name, but never overwrite a name another import already gave.
+ * Records item names and qualities seen in a `version` guild's imports, the addon or officer entry. These sources win
+ * over Blizzard's API: they replace a Blizzard name, but never overwrite a name another import already gave.
  */
-export async function recordItemFacts(db: Db, facts: readonly ItemFact[], source: Exclude<ItemDataSource, "blizzard">) {
+export async function recordItemFacts(
+  db: Db,
+  version: GuildVersion,
+  facts: readonly ItemFact[],
+  source: Exclude<ItemDataSource, "blizzard">,
+) {
   const byId = new Map<number, ItemFact>();
   for (const f of facts) {
     const prev = byId.get(f.itemId);
@@ -61,6 +68,7 @@ export async function recordItemFacts(db: Db, facts: readonly ItemFact[], source
     .insert(wowItems)
     .values(
       rows.map((f) => ({
+        gameVersion: version,
         itemId: f.itemId,
         name: f.name,
         nameSource: source,
@@ -69,7 +77,7 @@ export async function recordItemFacts(db: Db, facts: readonly ItemFact[], source
       })),
     )
     .onConflictDoUpdate({
-      target: wowItems.itemId,
+      target: [wowItems.gameVersion, wowItems.itemId],
       set: {
         name: sql`case when ${wowItems.nameSource} = 'blizzard' then excluded.name else ${wowItems.name} end`,
         nameSource: sql`case when ${wowItems.nameSource} = 'blizzard' then excluded.name_source else ${wowItems.nameSource} end`,
@@ -80,15 +88,24 @@ export async function recordItemFacts(db: Db, facts: readonly ItemFact[], source
     });
 }
 
-async function storeBlizzardItem(db: Db, item: Awaited<ReturnType<ItemLookupClient["getItem"]>>, itemId: number, now: Date) {
+const rowKey = (version: GuildVersion, itemId: number) => and(eq(wowItems.gameVersion, version), eq(wowItems.itemId, itemId));
+
+async function storeBlizzardItem(
+  db: Db,
+  version: GuildVersion,
+  item: Awaited<ReturnType<ItemLookupClient["getItem"]>>,
+  itemId: number,
+  now: Date,
+) {
   if (item.status !== "ok") {
-    await db.update(wowItems).set({ blizzardCheckedAt: now }).where(eq(wowItems.itemId, itemId));
+    await db.update(wowItems).set({ blizzardCheckedAt: now }).where(rowKey(version, itemId));
     return;
   }
   const { name, quality, icon, itemLevel } = item.item;
   await db
     .insert(wowItems)
     .values({
+      gameVersion: version,
       itemId,
       name,
       nameSource: "blizzard",
@@ -100,7 +117,7 @@ async function storeBlizzardItem(db: Db, item: Awaited<ReturnType<ItemLookupClie
       blizzardCheckedAt: now,
     })
     .onConflictDoUpdate({
-      target: wowItems.itemId,
+      target: [wowItems.gameVersion, wowItems.itemId],
       set: {
         name: sql`case when ${wowItems.nameSource} = 'blizzard' then excluded.name else ${wowItems.name} end`,
         // Blizzard's quality only fills a gap; icon and item level come from nowhere else yet.
@@ -116,84 +133,91 @@ async function storeBlizzardItem(db: Db, item: Awaited<ReturnType<ItemLookupClie
 }
 
 /**
- * Names, qualities and icons for these items. With a client, items the cache doesn't know (or has no icon for) are
- * looked up on Blizzard's Game Data API in the static namespace of `version` (the guild's), at most once a day each and
- * a bounded number per call. The cache is shared by every version: names, icons and qualities match across versions,
- * and items only one version has are only ever asked for by its guilds. Item levels can differ; the first lookup wins.
+ * Names, qualities, icons and item levels of these items in `version` (the guild's). With a client, items the
+ * version's cache doesn't know (or has no icon or item level for) are looked up in that version's Game Data static
+ * namespace, at most once a day each and a bounded number per call.
  */
 export async function resolveItems(
   db: Db,
   itemIds: Iterable<number>,
-  opts: { client?: ItemLookupClient | null; now?: Date; version?: GuildVersion } = {},
+  opts: { version: GuildVersion; client?: ItemLookupClient | null; now?: Date },
 ): Promise<Map<number, KnownItem>> {
-  const version: SupportedGuildVersion = isSupportedVersion(opts.version) ? opts.version : "forever";
+  const { version } = opts;
   const ids = [...new Set(itemIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (ids.length === 0) return new Map();
-  let rows = await db.select().from(wowItems).where(inArray(wowItems.itemId, ids));
+  const select = () => db.select().from(wowItems).where(and(eq(wowItems.gameVersion, version), inArray(wowItems.itemId, ids)));
+  let rows = await select();
 
-  if (opts.client) {
+  if (opts.client && isSupportedVersion(version)) {
     const now = opts.now ?? new Date();
     const byId = new Map(rows.map((r) => [r.itemId, r]));
     const stale = (r: Row | undefined) =>
-      !r || (!r.icon && (!r.blizzardCheckedAt || now.getTime() - r.blizzardCheckedAt.getTime() > RECHECK_AFTER_MS));
+      !r ||
+      ((!r.icon || r.itemLevel === null) && (!r.blizzardCheckedAt || now.getTime() - r.blizzardCheckedAt.getTime() > RECHECK_AFTER_MS));
     const wanted = ids.filter((id) => stale(byId.get(id))).slice(0, MAX_LOOKUPS_PER_CALL);
     if (wanted.length) {
       for (let i = 0; i < wanted.length; i += 5) {
         const chunk = wanted.slice(i, i + 5);
         const results = await Promise.all(chunk.map((id) => opts.client!.getItem(id, version)));
-        for (const [j, result] of results.entries()) await storeBlizzardItem(db, result, chunk[j]!, now);
+        for (const [j, result] of results.entries()) await storeBlizzardItem(db, version, result, chunk[j]!, now);
       }
-      rows = await db.select().from(wowItems).where(inArray(wowItems.itemId, ids));
+      rows = await select();
     }
   }
   return new Map(rows.map((r) => [r.itemId, toKnown(r)]));
 }
 
-/** Exact, case-insensitive name lookup in the cache. */
-export async function findItemByName(db: Db, name: string): Promise<KnownItem | null> {
+/** Exact, case-insensitive name lookup in the version's cache. */
+export async function findItemByName(db: Db, version: GuildVersion, name: string): Promise<KnownItem | null> {
   const [row] = await db
     .select()
     .from(wowItems)
-    .where(sql`lower(${wowItems.name}) = ${name.trim().toLowerCase()}`)
+    .where(and(eq(wowItems.gameVersion, version), sql`lower(${wowItems.name}) = ${name.trim().toLowerCase()}`))
     .orderBy(asc(wowItems.itemId))
     .limit(1);
   return row ? toKnown(row) : null;
 }
 
-/** Items for the award form's suggestions. */
-export async function listKnownItems(db: Db, limit = 1000) {
+/** The version's items, for the award form's suggestions. */
+export async function listKnownItems(db: Db, version: GuildVersion, limit = 1000) {
   return db
     .select({ itemId: wowItems.itemId, name: wowItems.name })
     .from(wowItems)
+    .where(eq(wowItems.gameVersion, version))
     .orderBy(asc(wowItems.name))
     .limit(limit);
 }
 
 /**
- * Daily: refreshes Blizzard data older than 25 days (WoW: Forever's namespace first, then TBC Anniversary's for items
- * Forever doesn't have), and deletes Blizzard data that couldn't be refreshed within
- * 30 days (rows named by Blizzard go entirely; otherwise just the Blizzard details).
+ * Daily: refreshes Blizzard data older than 25 days from each row's own version namespace, fills in rows that were
+ * never looked up (Anniversary copies made by migration 0023), and deletes Blizzard data that couldn't be refreshed
+ * within 30 days (rows named by Blizzard go entirely; otherwise just the Blizzard details). The pre-version
+ * `wow_items` table gets the same deletion until it is dropped.
  */
 export async function refreshItemCache(db: Db, client: ItemLookupClient | null, now = new Date()) {
   let refreshed = 0;
   if (client) {
     const due = await db
-      .select({ itemId: wowItems.itemId })
+      .select({ gameVersion: wowItems.gameVersion, itemId: wowItems.itemId })
       .from(wowItems)
-      .where(and(isNotNull(wowItems.blizzardFetchedAt), lt(wowItems.blizzardFetchedAt, new Date(now.getTime() - REFRESH_AFTER_DAYS * DAY))))
-      .orderBy(asc(wowItems.blizzardFetchedAt))
+      .where(
+        or(
+          and(isNotNull(wowItems.blizzardFetchedAt), lt(wowItems.blizzardFetchedAt, new Date(now.getTime() - REFRESH_AFTER_DAYS * DAY))),
+          and(isNull(wowItems.blizzardCheckedAt), or(isNull(wowItems.icon), isNull(wowItems.itemLevel))),
+        ),
+      )
+      .orderBy(sql`${wowItems.blizzardFetchedAt} asc nulls last`, asc(wowItems.itemId))
       .limit(REFRESH_BATCH);
-    for (const { itemId } of due) {
-      let result = await client.getItem(itemId, "forever");
-      if (result.status === "missing") result = await client.getItem(itemId, "anniversary");
-      if (result.status === "ok") {
-        await storeBlizzardItem(db, result, itemId, now);
-        refreshed++;
-      }
+    for (const { gameVersion, itemId } of due) {
+      if (!isSupportedVersion(gameVersion)) continue;
+      const result = await client.getItem(itemId, gameVersion);
+      await storeBlizzardItem(db, gameVersion, result, itemId, now);
+      if (result.status === "ok") refreshed++;
     }
   }
 
-  const expired = and(isNotNull(wowItems.blizzardFetchedAt), lt(wowItems.blizzardFetchedAt, new Date(now.getTime() - BLIZZARD_TTL_DAYS * DAY)));
+  const cutoff = new Date(now.getTime() - BLIZZARD_TTL_DAYS * DAY);
+  const expired = and(isNotNull(wowItems.blizzardFetchedAt), lt(wowItems.blizzardFetchedAt, cutoff));
   const deleted = await db
     .delete(wowItems)
     .where(and(expired, eq(wowItems.nameSource, "blizzard")))
@@ -210,5 +234,28 @@ export async function refreshItemCache(db: Db, client: ItemLookupClient | null, 
     })
     .where(expired)
     .returning({ itemId: wowItems.itemId });
-  return { refreshed, deleted: deleted.length, cleared: cleared.length };
+  const legacy = await purgeLegacyItemCache(db, cutoff, now);
+  return { refreshed, deleted: deleted.length, cleared: cleared.length, legacy };
+}
+
+/** Blizzard's 30-day limit for the pre-version `wow_items` table, which nothing refreshes any more. */
+async function purgeLegacyItemCache(db: Db, cutoff: Date, now: Date) {
+  const expired = and(isNotNull(legacyWowItems.blizzardFetchedAt), lt(legacyWowItems.blizzardFetchedAt, cutoff));
+  const deleted = await db
+    .delete(legacyWowItems)
+    .where(and(expired, eq(legacyWowItems.nameSource, "blizzard")))
+    .returning({ itemId: legacyWowItems.itemId });
+  const cleared = await db
+    .update(legacyWowItems)
+    .set({
+      icon: null,
+      itemLevel: null,
+      quality: sql`case when ${legacyWowItems.detailsSource} = 'blizzard' then null else ${legacyWowItems.quality} end`,
+      detailsSource: sql`case when ${legacyWowItems.detailsSource} = 'blizzard' then null else ${legacyWowItems.detailsSource} end`,
+      blizzardFetchedAt: null,
+      updatedAt: now,
+    })
+    .where(expired)
+    .returning({ itemId: legacyWowItems.itemId });
+  return { deleted: deleted.length, cleared: cleared.length };
 }

@@ -40,7 +40,7 @@ export default async function ImportLootPage({ params, searchParams }: PageProps
       if (err instanceof DomainError) notFound();
       throw err;
     }
-    const { batch, rows, names, characters, duplicateCount } = preview;
+    const { batch, rows, names, characters, duplicateCount, gameVersion } = preview;
     const parser = LOOT_PARSERS.find((p) => p.id === batch.parserId);
     const fresh = rows.length - duplicateCount;
     const decisionOptions = [
@@ -127,7 +127,7 @@ export default async function ImportLootPage({ params, searchParams }: PageProps
                         {r.row.timePrecision === "day" && <span className="block text-xs">Date only</span>}
                       </td>
                       <td className="py-2 pr-4">
-                        <ItemLink itemId={r.row.itemId} name={r.itemName} quality={r.quality} icon={r.icon} />
+                        <ItemLink itemId={r.row.itemId} name={r.itemName} quality={r.quality} icon={r.icon} gameVersion={gameVersion} />
                         {r.duplicate && <Tag className="ml-2">Already recorded</Tag>}
                       </td>
                       <td className="py-2 pr-4">

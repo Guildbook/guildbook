@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ActionForm, FormMessage, SubmitButton } from "@/components/action-form";
 import { ApplicationForm } from "@/components/application-form";
+import { ConfirmedJoinForm } from "@/components/confirmed-join-form";
 import { BattlenetAccount, BattlenetNotice, EmptySnapshotNote, LinkBattlenetButton } from "@/components/battlenet";
 import { ClassName, PageHeader, Panel, StatusPill, VerifiedMark } from "@/components/ui";
 import { db } from "@/db";
@@ -9,12 +10,13 @@ import { can } from "@/lib/authz/policy";
 import { formatDate } from "@/lib/format";
 import { fullName } from "@/lib/game";
 import { guildHref } from "@/lib/paths";
-import { applyAction, applyWithInviteAction, withdrawApplicationAction } from "@/server/actions/member";
+import { applyAction, applyWithInviteAction, joinAsConfirmedMemberAction, withdrawApplicationAction } from "@/server/actions/member";
 import { getGuild, getViewer } from "@/server/context";
 import { guildSocialMetadata } from "@/server/guild-metadata";
-import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
+import { battlenetEnabled, blizzardConfigFromEnv, getBlizzardClient } from "@/server/blizzard";
 import { listOwnApplications, validDraftInvite } from "@/server/services/applications";
 import { getEligibleCharacters } from "@/server/services/battlenet";
+import { findConfirmedJoin } from "@/server/services/confirmed-members";
 
 export async function generateMetadata({ params }: PageProps<"/[guild]/apply">): Promise<Metadata> {
   return { title: "Apply", ...(await guildSocialMetadata((await params).guild, "apply")) };
@@ -91,6 +93,11 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
   const bnet = bnetEnabled ? await getEligibleCharacters(db, viewer.actor) : { link: null, characters: [] };
   const applyHref = guildHref(slug, applyPath);
   const showForm = !pending && guild.recruitmentOpen;
+  const confirmed =
+    bnet.link && guild.verifiedAt
+      ? await findConfirmedJoin(db, viewer.actor, getBlizzardClient(), { cached: true }).catch(() => null)
+      : null;
+  const offer = confirmed?.ok ? confirmed.offer : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -108,6 +115,20 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
 
       <BattlenetNotice status={sp.bnet} />
 
+      {offer && (
+        <Panel title="Join as a member">
+          <ConfirmedJoinForm
+            action={joinAsConfirmedMemberAction.bind(null, slug, invite)}
+            character={offer.character}
+            inGameGuildName={offer.inGameGuildName}
+            rankName={offer.rank.name}
+            charterHref={guildHref(slug, "/charter")}
+            faithPledge={order}
+            gameVersion={guild.gameVersion}
+          />
+        </Panel>
+      )}
+
       {pending ? (
         <Panel title="Your application" actions={<StatusPill status={pending.status} />}>
           <p className="mb-4">
@@ -123,11 +144,13 @@ export default async function ApplyPage({ params, searchParams }: PageProps<"/[g
           </ActionForm>
         </Panel>
       ) : !guild.recruitmentOpen ? (
+        offer ? null : (
         <Panel>
           <p>Recruitment is closed at the moment. Please check back soon, or reach out on Discord.</p>
         </Panel>
+        )
       ) : (
-        <Panel>
+        <Panel title={offer ? "Or send an application for review instead" : undefined}>
           {bnetEnabled && (
             <div className="mb-5 space-y-3 border-b border-line pb-5">
               {bnet.link ? (

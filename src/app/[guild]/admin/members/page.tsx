@@ -62,7 +62,7 @@ export default async function MembersPage({ params }: PageProps<"/[guild]/admin/
             <li key={m.membershipId} className="panel flex flex-wrap items-center justify-between gap-3 p-3">
               <div className="min-w-0">
                 <p className="font-semibold">
-                  {m.mainId && m.mainClass && m.mainName && m.mainSurname ? (
+                  {m.mainId && m.mainClass && m.mainName && m.mainSurname !== null ? (
                     <CharacterLink guildSlug={slug} character={{ id: m.mainId, name: m.mainName, surname: m.mainSurname, wowClass: m.mainClass }} />
                   ) : (
                     <span className="text-muted">No main</span>
@@ -77,6 +77,11 @@ export default async function MembersPage({ params }: PageProps<"/[guild]/admin/
                     {m.rankName}
                   </span>
                   <Tag>{TIER_LABELS[m.rankTier]}</Tag>
+                  {m.leftInGameGuild && (
+                    <span className="rounded border border-gold-dim px-1.5 py-0.5 text-gold" data-testid="left-in-game-guild">
+                      Left the in-game guild
+                    </span>
+                  )}
                   {!guild.faction && m.mainFaction && <FactionBadge faction={m.mainFaction} />}
                 </p>
               </div>
@@ -103,7 +108,7 @@ export default async function MembersPage({ params }: PageProps<"/[guild]/admin/
                   </ActionForm>
                   <ActionForm
                     action={removeMemberAction.bind(null, slug, m.membershipId)}
-                    confirm={`Remove ${m.mainName && m.mainSurname ? fullName(m.mainName, m.mainSurname) : m.userName} from the guild?`}
+                    confirm={`Remove ${m.mainName && m.mainSurname !== null ? fullName(m.mainName, m.mainSurname) : m.userName} from the guild?`}
                   >
                     <SubmitButton variant="danger" size="sm">
                       Remove

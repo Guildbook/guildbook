@@ -181,7 +181,7 @@ export function profileInGuild(
 }
 
 export type MembershipCheck =
-  | { status: "member"; inGame: InGameGuild; rank: number | null }
+  | { status: "member"; inGame: InGameGuild; rank: number | null; rosterAvailable: boolean }
   | { status: "not_member"; reason: VerificationReason; conclusive: boolean; inGame?: InGameGuild };
 
 /**
@@ -195,9 +195,9 @@ export async function checkGuildMembership(
 ): Promise<MembershipCheck> {
   const found = await inGameMembership(client, identity, character);
   if (!found.ok) return { status: "not_member", reason: found.reason, conclusive: found.conclusive, inGame: found.inGame };
-  const { guild: inGame, rank } = found.membership;
+  const { guild: inGame, rank, rosterAvailable } = found.membership;
   if (!sameGuildName(inGame.name, identity.name)) return { status: "not_member", reason: "name_mismatch", conclusive: true, inGame };
-  return { status: "member", inGame, rank };
+  return { status: "member", inGame, rank, rosterAvailable };
 }
 
 /** Lower is closer to verified; picks which failure to explain when several characters were checked. */

@@ -9,6 +9,7 @@ import { requirePage } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { dnsInstructions, type GuildDomain, listGuildDomains, MAX_DOMAINS_PER_GUILD } from "@/server/services/domains";
 import { vercelConfigFromEnv } from "@/server/vercel-domains";
+import { ConfirmedJoinPanel } from "./confirmed-join-panel";
 import { DeleteGuildPanel } from "./delete-guild-panel";
 import { GuildSettingsForm } from "./settings-form";
 import { TabardSection } from "./tabard-section";
@@ -91,6 +92,10 @@ export default async function GuildSettingsPage({ params }: PageProps<"/[guild]/
 
       <div id="verify" className="scroll-mt-24">
         <VerifyGuildPanel guild={guild} />
+      </div>
+
+      <div id="confirmed-members" className="scroll-mt-24">
+        <ConfirmedJoinPanel guild={guild} />
       </div>
 
       <div id="tabard" className="scroll-mt-24">

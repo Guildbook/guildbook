@@ -259,6 +259,13 @@ export const guilds = pgTable("guilds", {
   applicantRankId: uuid("applicant_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
   acceptRankId: uuid("accept_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
   trialRankId: uuid("trial_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
+  /**
+   * Members Battle.net confirms in the in-game guild join without review. Only ever applies while the guild is
+   * verified: an unverified guild could be anyone's squat of the name.
+   */
+  autoApproveInGuild: boolean("auto_approve_in_guild").notNull().default(true),
+  /** The rank confirmed members join at; null means `acceptRankId`. */
+  autoApproveRankId: uuid("auto_approve_rank_id").references((): AnyPgColumn => ranks.id, { onDelete: "set null" }),
   discordGuildId: text("discord_guild_id"),
   discordInviteUrl: text("discord_invite_url"),
   preset: guildPresetEnum("preset").notNull().default("standard"),
@@ -414,6 +421,8 @@ export const characters = pgTable(
      * with realms, realm): a verified member. Null when it wasn't, or hasn't been checked.
      */
     inGuildConfirmedAt: timestamp("in_guild_confirmed_at", { withTimezone: true }),
+    /** When a re-check found a confirmed character no longer in the in-game guild; cleared once it is confirmed again. */
+    inGuildLostAt: timestamp("in_guild_lost_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -824,11 +833,49 @@ export const lootImportStatusEnum = pgEnum("loot_import_status", ["draft", "comm
 export const itemDataSourceEnum = pgEnum("item_data_source", ITEM_DATA_SOURCES);
 
 /**
- * Item names, quality and icons shared by every guild (not guild-scoped, like `users`). Imports and the addon are the
- * preferred sources. Blizzard Game Data API fields only fill gaps, and the daily cron refreshes them or drops them
- * within 30 days, as Blizzard's API terms require (`details_source = 'blizzard'`, `name_source = 'blizzard'`).
+ * Item names, quality and icons per game version, shared by every guild of that version (not guild-scoped, like
+ * `users`). Keyed by version rather than expansion: each version reads its own Game Data namespace, and versions of
+ * one expansion still tune the same item IDs differently (Season of Discovery reworks Classic items; WoW: Forever
+ * may too). Imports and the addon are the preferred sources. Blizzard Game Data API fields only fill gaps, and the
+ * daily cron refreshes them or drops them within 30 days, as Blizzard's API terms require (`details_source =
+ * 'blizzard'`, `name_source = 'blizzard'`).
  */
 export const wowItems = pgTable(
+  "wow_version_items",
+  {
+    gameVersion: gameVersionEnum("game_version").notNull(),
+    itemId: integer("item_id").notNull(),
+    name: text("name").notNull(),
+    nameSource: itemDataSourceEnum("name_source").notNull(),
+    quality: smallint("quality"),
+    /** Icon file name, e.g. `inv_sword_39`. Icons are hotlinked from Blizzard's render CDN, never stored. */
+    icon: text("icon"),
+    itemLevel: smallint("item_level"),
+    /** Source of quality, icon and item level; null when none is known. */
+    detailsSource: itemDataSourceEnum("details_source"),
+    /** When Blizzard data in this row was last fetched successfully. */
+    blizzardFetchedAt: timestamp("blizzard_fetched_at", { withTimezone: true }),
+    /** Last Blizzard lookup, successful or not, so missing items aren't retried on every run. */
+    blizzardCheckedAt: timestamp("blizzard_checked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    primaryKey({ name: "wow_version_items_pkey", columns: [t.gameVersion, t.itemId] }),
+    index("wow_version_items_name_idx").on(t.gameVersion, sql`lower(${t.name})`),
+    index("wow_version_items_blizzard_idx").on(t.blizzardFetchedAt),
+    check("wow_version_items_quality_range", sql`${t.quality} between 0 and 7`),
+    check("wow_version_items_item_id_positive", sql`${t.itemId} > 0`),
+  ],
+);
+
+/**
+ * The item cache from before versions (one row per item ID, whatever version it was fetched for). Migration 0023
+ * copied it into `wow_version_items`; it stays only so code deployed before that migration keeps working during a
+ * rolling deploy. Nothing reads it any more; the daily cron still drops its expired Blizzard data (API terms) until a
+ * cleanup migration drops the table.
+ */
+export const legacyWowItems = pgTable(
   "wow_items",
   {
     itemId: integer("item_id").primaryKey(),

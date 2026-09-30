@@ -16,6 +16,7 @@ import {
 import type { Db } from "@/db/types";
 import { type Actor, assertCan, AuthorizationError } from "@/lib/authz/policy";
 import { fullName } from "@/lib/game";
+import type { GuildVersion } from "@/lib/game-versions";
 import { canViewLoot } from "@/lib/loot/access";
 import { type ItemQuality, isItemQuality, type LootResponse, type LootSource, NO_RECIPIENT_RESPONSES } from "@/lib/loot/constants";
 import { parseItemRef, placeholderItemName } from "@/lib/loot/items";
@@ -62,6 +63,8 @@ export interface LootRow {
   itemName: string;
   quality: ItemQuality | null;
   icon: string | null;
+  /** The guild's game version, whose item cache the details came from. */
+  gameVersion: GuildVersion;
   itemFromBlizzard: boolean;
   character: { id: string; name: string; surname: string; wowClass: (typeof characters.$inferSelect)["wowClass"] } | null;
   recipientName: string | null;
@@ -97,6 +100,7 @@ async function selectLoot(db: Db, guildId: string, filter: LootFilter): Promise<
       nameSource: wowItems.nameSource,
       detailsSource: wowItems.detailsSource,
       cachedName: wowItems.name,
+      gameVersion: guilds.gameVersion,
       charId: characters.id,
       charName: characters.name,
       charSurname: characters.surname,
@@ -105,7 +109,8 @@ async function selectLoot(db: Db, guildId: string, filter: LootFilter): Promise<
       reversalAt: reversal.createdAt,
     })
     .from(lootEntries)
-    .leftJoin(wowItems, eq(wowItems.itemId, lootEntries.itemId))
+    .innerJoin(guilds, eq(guilds.id, lootEntries.guildId))
+    .leftJoin(wowItems, and(eq(wowItems.gameVersion, guilds.gameVersion), eq(wowItems.itemId, lootEntries.itemId)))
     .leftJoin(characters, and(eq(characters.guildId, lootEntries.guildId), eq(characters.id, lootEntries.characterId)))
     .leftJoin(reversal, and(eq(reversal.reversesEntryId, lootEntries.id), eq(reversal.kind, "reversal")))
     .where(and(...conditions))
@@ -121,6 +126,7 @@ async function selectLoot(db: Db, guildId: string, filter: LootFilter): Promise<
       itemName: placeholder && r.cachedName ? r.cachedName : e.itemName,
       quality: isItemQuality(r.quality) ? r.quality : null,
       icon: r.icon,
+      gameVersion: r.gameVersion,
       itemFromBlizzard: r.detailsSource === "blizzard" || (placeholder && r.nameSource === "blizzard"),
       character: r.charId ? { id: r.charId, name: r.charName!, surname: r.charSurname!, wowClass: r.charClass! } : null,
       recipientName: e.recipientName,
@@ -175,6 +181,7 @@ export async function listRaidNights(db: Db, actor: Actor, limit = 30) {
 /** Choices for the quick award form: the guild's current characters, its bosses, and items the cache knows. */
 export async function awardFormOptions(db: Db, actor: Actor) {
   assertCan(actor, "loot.award");
+  const { gameVersion } = await guildLootSettings(db, actor.guildId);
   const [chars, bossRows, items] = await Promise.all([
     db
       .select({ id: characters.id, name: characters.name, surname: characters.surname, wowClass: characters.wowClass })
@@ -188,7 +195,7 @@ export async function awardFormOptions(db: Db, actor: Actor) {
       .innerJoin(instances, and(eq(instances.guildId, bosses.guildId), eq(instances.id, bosses.instanceId)))
       .where(eq(bosses.guildId, actor.guildId))
       .orderBy(asc(instances.sortOrder), asc(instances.name), asc(bosses.sortOrder)),
-    listKnownItems(db),
+    listKnownItems(db, gameVersion),
   ]);
   return { characters: chars, bosses: bossRows, items };
 }
@@ -215,14 +222,14 @@ export async function awardLoot(db: Db, actor: Actor, raw: unknown, deps: { clie
   let itemName: string;
   if (!ref) throw new DomainError("Enter an item.");
   if (ref.itemId === null) {
-    const known = await findItemByName(db, ref.name);
+    const known = await findItemByName(db, gameVersion, ref.name);
     if (!known) throw new DomainError(`No item called "${ref.name}" is known yet. Paste its item ID, in-game link or Wowhead link.`);
     itemId = known.itemId;
     itemName = known.name;
   } else {
     itemId = ref.itemId;
     if (ref.name) {
-      await recordItemFacts(db, [{ itemId, name: ref.name, quality: null }], "manual");
+      await recordItemFacts(db, gameVersion, [{ itemId, name: ref.name, quality: null }], "manual");
       itemName = ref.name;
     } else {
       const known = (await resolveItems(db, [itemId], { client: deps.client, now, version: gameVersion })).get(itemId);
@@ -361,6 +368,7 @@ export async function previewImport(db: Db, actor: Actor, raw: unknown, deps: { 
 
   await recordItemFacts(
     db,
+    gameVersion,
     parsed.rows.map((r) => ({ itemId: r.itemId, name: r.itemName, quality: r.itemQuality })),
     "import",
   );
@@ -456,9 +464,10 @@ async function existingExternalIds(db: Db, guildId: string, source: LootSource, 
 export async function getImportPreview(db: Db, actor: Actor, batchId: string) {
   assertCan(actor, "loot.import");
   const batch = await draftBatch(db, actor.guildId, batchId);
+  const { gameVersion } = await guildLootSettings(db, actor.guildId);
   const { candidates, match } = await matchingContext(db, actor.guildId);
   const duplicates = await existingExternalIds(db, actor.guildId, batch.source, batch.rows.map((r) => r.externalId));
-  const items = await resolveItems(db, batch.rows.map((r) => r.itemId));
+  const items = await resolveItems(db, batch.rows.map((r) => r.itemId), { version: gameVersion });
 
   const names = new Map<string, { key: string; display: string; count: number; match: ReturnType<typeof match> }>();
   const rows = batch.rows.map((r, index) => {
@@ -484,6 +493,7 @@ export async function getImportPreview(db: Db, actor: Actor, batchId: string) {
 
   return {
     batch: { id: batch.id, parserId: batch.parserId, source: batch.source, rowCount: batch.rowCount, warnings: batch.warnings, createdAt: batch.createdAt },
+    gameVersion,
     rows,
     names: [...names.values()].sort((a, b) => Number(Boolean(a.match)) - Number(Boolean(b.match)) || a.display.localeCompare(b.display)),
     characters: candidates.filter((c) => !c.archived),
@@ -502,12 +512,12 @@ function nameKey(value: string | null | undefined) {
 export async function commitImport(db: Db, actor: Actor, raw: unknown) {
   assertCan(actor, "loot.import");
   const input = lootCommitInput.parse(raw);
-  const { timezone } = await guildLootSettings(db, actor.guildId);
+  const { timezone, gameVersion } = await guildLootSettings(db, actor.guildId);
 
   return db.transaction(async (tx) => {
     const batch = await draftBatch(tx, actor.guildId, input.batchId, true);
     const { byId, match } = await matchingContext(tx, actor.guildId);
-    const items = await resolveItems(tx, batch.rows.map((r) => r.itemId));
+    const items = await resolveItems(tx, batch.rows.map((r) => r.itemId), { version: gameVersion });
     const [instanceRows, bossRows] = await Promise.all([
       tx.select({ id: instances.id, name: instances.name, shortName: instances.shortName }).from(instances).where(eq(instances.guildId, actor.guildId)),
       tx.select({ id: bosses.id, name: bosses.name, instanceId: bosses.instanceId }).from(bosses).where(eq(bosses.guildId, actor.guildId)),

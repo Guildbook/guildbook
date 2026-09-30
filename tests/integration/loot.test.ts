@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { auditLog, bosses, guilds, instances, lootEntries, lootNameAliases, users, wowItems } from "@/db/schema";
+import { auditLog, bosses, guilds, instances, legacyWowItems, lootEntries, lootNameAliases, users, wowItems } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { AuthorizationError } from "@/lib/authz/policy";
 import type { ItemLookup } from "@/server/blizzard/client";
@@ -333,39 +333,105 @@ describe("demo seed", () => {
 });
 
 describe("item cache", () => {
-  const item = (itemId: number, name: string): ItemLookup => ({ status: "ok", item: { itemId, name, quality: 3, itemLevel: 60, icon: "inv_misc_gem_01" } });
+  const item = (itemId: number, name: string, itemLevel = 60): ItemLookup => ({ status: "ok", item: { itemId, name, quality: 3, itemLevel, icon: "inv_misc_gem_01" } });
 
   it("fills gaps from Blizzard at most daily per item, and lets import names win", async () => {
     let calls = 0;
     const client = { getItem: async (id: number): Promise<ItemLookup> => (calls++, id === 30001 ? item(id, "Blizzard Name") : { status: "missing" }) };
-    const first = await resolveItems(db, [30001, 30002], { client });
+    const first = await resolveItems(db, [30001, 30002], { client, version: "forever" });
     expect(first.get(30001)).toMatchObject({ name: "Blizzard Name", icon: "inv_misc_gem_01", fromBlizzard: true });
     expect(first.has(30002)).toBe(false);
     expect(calls).toBe(2);
-    await resolveItems(db, [30001], { client });
+    await resolveItems(db, [30001], { client, version: "forever" });
     expect(calls).toBe(2);
 
     const g = await setup();
     await awardLoot(db, g.marshal, { item: "Import Name (#30001)", characterId: g.cassian.id, response: "roll", awardedOn: "2026-12-10" });
-    const [row] = await db.select().from(wowItems).where(eq(wowItems.itemId, 30001));
+    const [row] = await db.select().from(wowItems).where(and(eq(wowItems.gameVersion, "forever"), eq(wowItems.itemId, 30001)));
     expect(row).toMatchObject({ name: "Import Name", nameSource: "manual", icon: "inv_misc_gem_01" });
   });
 
-  it("refreshes Blizzard data after 25 days and deletes what can't be refreshed within 30", async () => {
+  it("keeps each game version's item separately, looked up in that version's namespace", async () => {
+    const asked: [number, string][] = [];
+    const client = {
+      getItem: async (id: number, version = "forever"): Promise<ItemLookup> => (asked.push([id, version]), item(id, "Shared Blade", version === "anniversary" ? 115 : 63)),
+    };
+    const forever = await resolveItems(db, [31001], { client, version: "forever" });
+    const anniversary = await resolveItems(db, [31001], { client, version: "anniversary" });
+    expect(asked).toEqual([
+      [31001, "forever"],
+      [31001, "anniversary"],
+    ]);
+    expect(forever.get(31001)).toMatchObject({ itemLevel: 63 });
+    expect(anniversary.get(31001)).toMatchObject({ itemLevel: 115 });
+    // Cached per version: neither lookup repeats, and each version reads its own row.
+    expect((await resolveItems(db, [31001], { client, version: "anniversary" })).get(31001)?.itemLevel).toBe(115);
+    expect(asked).toHaveLength(2);
+    // Versions Battle.net doesn't serve are never looked up.
+    expect((await resolveItems(db, [31001], { client, version: "era" })).size).toBe(0);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("shows an Anniversary guild's loot with Anniversary item details and a TBC Wowhead link", async () => {
+    const guild = await createGuild(db, { gameVersion: "anniversary", realmSlug: "dreamscythe", faction: "horde" });
+    const officer = await createMember(db, guild, "Officer");
+    await db.insert(wowItems).values([
+      { gameVersion: "forever", itemId: 31002, name: "Era Name", nameSource: "import", icon: "era_icon", itemLevel: 60 },
+      { gameVersion: "anniversary", itemId: 31002, name: "Anniversary Name", nameSource: "import", icon: "tbc_icon", itemLevel: 110 },
+    ]);
+    await awardLoot(db, officer, { item: "31002", response: "disenchant", awardedOn: "2026-12-10" });
+    const [row] = await listLoot(db, officer);
+    expect(row).toMatchObject({ itemId: 31002, itemName: "Anniversary Name", icon: "tbc_icon", gameVersion: "anniversary" });
+    const { wowheadItemUrl } = await import("@/lib/loot/items");
+    expect(wowheadItemUrl(31002, row!.gameVersion)).toBe("https://www.wowhead.com/tbc/item=31002");
+    expect(wowheadItemUrl(31002, "forever")).toBe("https://www.wowhead.com/classic/item=31002");
+  });
+
+  it("refreshes Blizzard data after 25 days in each row's version and deletes what can't be refreshed within 30", async () => {
     const now = new Date("2026-12-11T00:00:00Z");
     const day = 86_400_000;
     await db.insert(wowItems).values([
-      { itemId: 40001, name: "Stale Blizzard", nameSource: "blizzard", detailsSource: "blizzard", icon: "a", blizzardFetchedAt: new Date(now.getTime() - 26 * day) },
-      { itemId: 40002, name: "Expired Blizzard", nameSource: "blizzard", detailsSource: "blizzard", icon: "b", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
-      { itemId: 40003, name: "Imported", nameSource: "import", quality: 4, detailsSource: "blizzard", icon: "c", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
+      { gameVersion: "forever", itemId: 40001, name: "Stale Blizzard", nameSource: "blizzard", detailsSource: "blizzard", icon: "a", itemLevel: 60, blizzardFetchedAt: new Date(now.getTime() - 26 * day) },
+      { gameVersion: "anniversary", itemId: 40001, name: "Stale Blizzard", nameSource: "blizzard", detailsSource: "blizzard", icon: "a", itemLevel: 60, blizzardFetchedAt: new Date(now.getTime() - 26 * day) },
+      { gameVersion: "forever", itemId: 40002, name: "Expired Blizzard", nameSource: "blizzard", detailsSource: "blizzard", icon: "b", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
+      { gameVersion: "forever", itemId: 40003, name: "Imported", nameSource: "import", quality: 4, detailsSource: "blizzard", icon: "c", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
     ]);
-    const client = { getItem: async (id: number): Promise<ItemLookup> => (id === 40001 ? item(id, "Fresh Blizzard") : { status: "error" }) };
+    const asked: string[] = [];
+    const client = {
+      getItem: async (id: number, version = "forever"): Promise<ItemLookup> => {
+        asked.push(`${version}:${id}`);
+        return id === 40001 ? item(id, "Fresh Blizzard", version === "anniversary" ? 110 : 62) : { status: "error" };
+      },
+    };
     const result = await refreshItemCache(db, client, now);
-    expect(result).toMatchObject({ refreshed: 1, deleted: 1, cleared: 1 });
-    const rows = await db.select().from(wowItems).where(sql`${wowItems.itemId} between 40001 and 40003`).orderBy(wowItems.itemId);
-    expect(rows.map((r) => [r.itemId, r.name, r.icon, r.detailsSource])).toEqual([
-      [40001, "Fresh Blizzard", "inv_misc_gem_01", "blizzard"],
-      [40003, "Imported", null, null],
+    expect(result).toMatchObject({ refreshed: 2, deleted: 1, cleared: 1 });
+    expect(asked).toEqual(expect.arrayContaining(["forever:40001", "anniversary:40001"]));
+    const rows = await db
+      .select()
+      .from(wowItems)
+      .where(sql`${wowItems.itemId} between 40001 and 40003`)
+      .orderBy(wowItems.itemId, wowItems.gameVersion);
+    expect(rows.map((r) => [r.gameVersion, r.itemId, r.name, r.icon, r.itemLevel, r.detailsSource])).toEqual([
+      ["forever", 40001, "Fresh Blizzard", "inv_misc_gem_01", 62, "blizzard"],
+      ["anniversary", 40001, "Fresh Blizzard", "inv_misc_gem_01", 110, "blizzard"],
+      ["forever", 40003, "Imported", null, null, null],
     ]);
+  });
+
+  it("fills in rows that were never looked up, and drops expired Blizzard data from the pre-version table", async () => {
+    const now = new Date("2026-12-11T00:00:00Z");
+    const day = 86_400_000;
+    await db.insert(wowItems).values({ gameVersion: "anniversary", itemId: 40010, name: "Copied", nameSource: "import", icon: "x" });
+    await db.insert(legacyWowItems).values([
+      { itemId: 40011, name: "Old Blizzard", nameSource: "blizzard", detailsSource: "blizzard", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
+      { itemId: 40012, name: "Old Import", nameSource: "import", icon: "y", detailsSource: "blizzard", blizzardFetchedAt: new Date(now.getTime() - 31 * day) },
+    ]);
+    const client = { getItem: async (id: number): Promise<ItemLookup> => item(id, "Copied", 105) };
+    const result = await refreshItemCache(db, client, now);
+    expect(result.legacy).toEqual({ deleted: 1, cleared: 1 });
+    const [filled] = await db.select().from(wowItems).where(and(eq(wowItems.gameVersion, "anniversary"), eq(wowItems.itemId, 40010)));
+    expect(filled).toMatchObject({ itemLevel: 105, blizzardCheckedAt: now });
+    const legacy = await db.select().from(legacyWowItems).where(sql`${legacyWowItems.itemId} between 40011 and 40012`);
+    expect(legacy.map((r) => [r.itemId, r.icon, r.blizzardFetchedAt])).toEqual([[40012, null, null]]);
   });
 });

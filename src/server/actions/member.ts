@@ -11,6 +11,7 @@ import { fullName, PROFESSIONS, type Profession } from "@/lib/game";
 import { sharesSessionCookie } from "@/lib/hosts";
 import { guildHref } from "@/lib/paths";
 import { type ActionResult, runAction } from "@/server/action";
+import { getBlizzardClient } from "@/server/blizzard";
 import { setFlash } from "@/server/flash";
 import { sessionCookieName, sessionReachUrl } from "@/server/handoff";
 import { getRequestHost, validateDestination } from "@/server/hosts";
@@ -21,6 +22,7 @@ import {
   setMainCharacter,
   updateCharacter,
 } from "@/server/services/characters";
+import { joinAsConfirmedMember } from "@/server/services/confirmed-members";
 
 function formObject(fd: FormData): Record<string, FormDataEntryValue> {
   return Object.fromEntries(fd.entries());
@@ -73,6 +75,22 @@ export async function applyAction(slug: string, _prev: ActionResult | null, fd: 
 export async function applyWithInviteAction(slug: string, invite: string, prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   fd.set("invite", invite);
   return applyAction(slug, prev, fd);
+}
+
+/** Joining without review as a member Battle.net confirms in the in-game guild. `invite` is a draft guild's link token. */
+export async function joinAsConfirmedMemberAction(
+  slug: string,
+  invite: string | null,
+  _prev: ActionResult | null,
+  fd: FormData,
+): Promise<ActionResult> {
+  const result = await runAction(slug, async ({ guild, viewer }) => {
+    const joined = await joinAsConfirmedMember(db, viewer.actor, formObject(fd), getBlizzardClient(), { invite });
+    return `Welcome to ${guild.name}. ${joined.characterName} joined as ${joined.rankName}.`;
+  });
+  if (!result.ok) return result;
+  if (result.message) await setFlash(result.message);
+  redirect(guildHref(slug, "/members"));
 }
 
 export async function withdrawApplicationAction(

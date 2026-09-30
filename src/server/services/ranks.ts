@@ -129,7 +129,7 @@ export async function deleteRank(db: Db, actor: Actor, id: string) {
     const [inUse] = await tx.select({ n: count() }).from(memberships).where(eq(memberships.rankId, id));
     if ((inUse?.n ?? 0) > 0) throw new DomainError("Move members off this rank before deleting it.");
     const [guild] = await tx.select().from(guilds).where(eq(guilds.id, actor.guildId));
-    if (guild && [guild.applicantRankId, guild.acceptRankId, guild.trialRankId].includes(id)) {
+    if (guild && [guild.applicantRankId, guild.acceptRankId, guild.trialRankId, guild.autoApproveRankId].includes(id)) {
       throw new DomainError("This rank is used for applicants, trials or new members. Change that setting first.");
     }
     await tx.delete(ranks).where(eq(ranks.id, id));
@@ -174,6 +174,8 @@ export async function listMembers(db: Db, actor: Actor) {
       mainSurname: characters.surname,
       mainClass: characters.wowClass,
       mainFaction: characters.faction,
+      /** A character once confirmed in the in-game guild that Battle.net now shows outside it (see the daily sync). */
+      leftInGameGuild: sql<boolean>`exists (select 1 from characters lost where lost.membership_id = ${memberships.id} and lost.archived_at is null and lost.in_guild_lost_at is not null)`,
     })
     .from(memberships)
     .innerJoin(ranks, eq(ranks.id, memberships.rankId))

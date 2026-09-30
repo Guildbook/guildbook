@@ -1,15 +1,17 @@
+import { expansionOf, type GuildVersion } from "@/lib/game-versions";
 import { type ItemQuality, qualityFromHex } from "./constants";
 
 /** `|cffa335ee|Hitem:19019:...|h[Thunderfury, Blessed Blade of the Windseeker]|h|r` (pipes may be doubled when escaped). */
 const ITEM_LINK = /(?:\|\|?c(?:ff)?([0-9a-f]{6}))?\|\|?Hitem:(\d+)[^|]*\|\|?h\[([^\]]+)\]/i;
 
-/** Icons are hotlinked from Blizzard's render CDN, never stored or re-hosted. */
+/** Icons are hotlinked from Blizzard's render CDN, never stored or re-hosted. Icon names are the same in every version. */
 export function itemIconUrl(icon: string): string {
   return `https://render.worldofwarcraft.com/us/icons/56/${encodeURIComponent(icon)}.jpg`;
 }
 
-export function wowheadItemUrl(itemId: number): string {
-  return `https://www.wowhead.com/classic/item=${itemId}`;
+/** Wowhead's database for the version's expansion, where the item has that expansion's stats. */
+export function wowheadItemUrl(itemId: number, version: GuildVersion = "forever"): string {
+  return `https://www.wowhead.com/${expansionOf(version) === "tbc" ? "tbc" : "classic"}/item=${itemId}`;
 }
 
 export function placeholderItemName(itemId: number): string {
