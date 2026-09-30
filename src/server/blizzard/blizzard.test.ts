@@ -293,6 +293,30 @@ describe("BlizzardClient.getAccountCharacters across game versions", () => {
     expect(result.scan.excluded).toEqual([]);
   });
 
+  it("classifies each character once: progression stays progression whether Forever reads classic1x or classic", async () => {
+    const anniversary = account([1, 2, 3, 4, 5].map((id) => ({ id, name: `Ann${"abcde"[id - 1]}`, realm: id % 2 ? "dreamscythe" : "nightslayer" })));
+    const progression = account([
+      ...["Valandor", "Vaelidor", "Maniala", "Wurgen", "Pim", "Six", "Seven", "Eight"].map((name, i) => ({ id: 10 + i, name, realm: "atiesh" })),
+      { id: 20, name: "Liontusk", realm: "bloodsail-buccaneers", raceId: 2, faction: "HORDE" },
+    ]);
+    const responses = {
+      "profile-classic1x-us": { status: 404 },
+      "profile-classicann-us": { status: 200, body: anniversary },
+      "profile-classic-us": { status: 200, body: progression },
+    };
+    for (const profileNamespace of ["profile-classic1x-{region}", "profile-classic-{region}"]) {
+      const result = await new BlizzardClient({ ...usConfig, profileNamespace }, fetchByNamespace(responses)).getAccountCharacters("token");
+      expect(result.characters.map((c) => c.gameVersion)).toEqual(Array(5).fill("anniversary"));
+      expect(result.scan.excluded.map((g) => [g.version, g.faction, g.count])).toEqual([
+        ["progression", "alliance", 8],
+        ["progression", "horde", 1],
+      ]);
+      expect(describeScanForLog(result.scan, result.characters)).toMatch(/forever=0 anniversary=5 excluded=9$/);
+      const forForever = charactersForGuild(result.characters, { gameVersion: "forever", region: "us", faction: "alliance", realmSlugs: [] });
+      expect(forForever).toEqual([]);
+    }
+  });
+
   it("counts retail characters, including classes Forever lacks, without importing them", async () => {
     const client = new BlizzardClient(
       config,

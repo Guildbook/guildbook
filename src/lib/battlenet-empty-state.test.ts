@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { BattlenetScan } from "@/db/schema";
-import { emptySnapshotMessage, type EmptySnapshotInput } from "./battlenet-empty-state";
+import { emptySnapshotMessage, type EmptySnapshotInput, refreshSummary } from "./battlenet-empty-state";
+
+describe("refreshSummary", () => {
+  it("counts only the characters this guild accepts, in its game version", () => {
+    expect(refreshSummary(0)).toBe("Characters refreshed: no WoW: Forever characters can join this guild.");
+    expect(refreshSummary(1)).toBe("Found 1 WoW: Forever character for this guild.");
+    expect(refreshSummary(5, "anniversary")).toBe("Found 5 TBC Anniversary characters for this guild.");
+  });
+});
 
 const beforeLaunch = new Date("2026-09-28T17:18:00Z");
 const afterLaunch = new Date("2026-11-10T12:00:00Z");
