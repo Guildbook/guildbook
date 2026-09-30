@@ -38,7 +38,7 @@ const DRAFT_RETENTION_DAYS = 7;
 
 async function guildLootSettings(db: Db, guildId: string) {
   const [guild] = await db
-    .select({ timezone: guilds.timezone, lootPublic: guilds.lootPublic })
+    .select({ timezone: guilds.timezone, lootPublic: guilds.lootPublic, gameVersion: guilds.gameVersion })
     .from(guilds)
     .where(eq(guilds.id, guildId));
   if (!guild) throw new NotFoundError("Guild");
@@ -208,7 +208,7 @@ export async function awardLoot(db: Db, actor: Actor, raw: unknown, deps: { clie
   const [guild] = await db.select({ gameVersion: guilds.gameVersion }).from(guilds).where(eq(guilds.id, actor.guildId));
   const input = lootAwardInputFor(guild?.gameVersion ?? "forever").parse(raw);
   const now = deps.now ?? new Date();
-  const { timezone } = await guildLootSettings(db, actor.guildId);
+  const { timezone, gameVersion } = await guildLootSettings(db, actor.guildId);
 
   const ref = parseItemRef(input.item);
   let itemId: number;
@@ -225,7 +225,7 @@ export async function awardLoot(db: Db, actor: Actor, raw: unknown, deps: { clie
       await recordItemFacts(db, [{ itemId, name: ref.name, quality: null }], "manual");
       itemName = ref.name;
     } else {
-      const known = (await resolveItems(db, [itemId], { client: deps.client, now })).get(itemId);
+      const known = (await resolveItems(db, [itemId], { client: deps.client, now, version: gameVersion })).get(itemId);
       itemName = known?.name ?? placeholderItemName(itemId);
     }
   }
@@ -344,7 +344,7 @@ function toStored(rows: ParsedAward[]): StoredParsedAward[] {
 export async function previewImport(db: Db, actor: Actor, raw: unknown, deps: { client?: ItemLookupClient | null } = {}) {
   assertCan(actor, "loot.import");
   const input = lootImportInput.parse(raw);
-  const { timezone } = await guildLootSettings(db, actor.guildId);
+  const { timezone, gameVersion } = await guildLootSettings(db, actor.guildId);
   if (input.parserId && !getLootParser(input.parserId)) throw new DomainError("Choose a known export format.");
 
   let parsed;
@@ -366,7 +366,7 @@ export async function previewImport(db: Db, actor: Actor, raw: unknown, deps: { 
   );
   // Exports without item names (RCLootCouncil JSON, TMB) fall back to Blizzard's API for the gaps.
   const unnamed = parsed.rows.filter((r) => !r.itemName).map((r) => r.itemId);
-  if (unnamed.length) await resolveItems(db, unnamed, { client: deps.client });
+  if (unnamed.length) await resolveItems(db, unnamed, { client: deps.client, version: gameVersion });
 
   const [batch] = await db
     .insert(lootImportBatches)

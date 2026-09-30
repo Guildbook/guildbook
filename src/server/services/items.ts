@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { wowItems } from "@/db/schema";
 import type { Db } from "@/db/types";
 import { type ItemDataSource, type ItemQuality, isItemQuality } from "@/lib/loot/constants";
+import { type GuildVersion, isSupportedVersion, type SupportedGuildVersion } from "@/lib/game-versions";
 import type { BlizzardClient } from "@/server/blizzard/client";
 
 /** Blizzard's API terms: cached Game Data must be refreshed or deleted within 30 days. */
@@ -116,13 +117,16 @@ async function storeBlizzardItem(db: Db, item: Awaited<ReturnType<ItemLookupClie
 
 /**
  * Names, qualities and icons for these items. With a client, items the cache doesn't know (or has no icon for) are
- * looked up on Blizzard's Game Data API, at most once a day each and a bounded number per call.
+ * looked up on Blizzard's Game Data API in the static namespace of `version` (the guild's), at most once a day each and
+ * a bounded number per call. The cache is shared by every version: names, icons and qualities match across versions,
+ * and items only one version has are only ever asked for by its guilds. Item levels can differ; the first lookup wins.
  */
 export async function resolveItems(
   db: Db,
   itemIds: Iterable<number>,
-  opts: { client?: ItemLookupClient | null; now?: Date } = {},
+  opts: { client?: ItemLookupClient | null; now?: Date; version?: GuildVersion } = {},
 ): Promise<Map<number, KnownItem>> {
+  const version: SupportedGuildVersion = isSupportedVersion(opts.version) ? opts.version : "forever";
   const ids = [...new Set(itemIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (ids.length === 0) return new Map();
   let rows = await db.select().from(wowItems).where(inArray(wowItems.itemId, ids));
@@ -136,7 +140,7 @@ export async function resolveItems(
     if (wanted.length) {
       for (let i = 0; i < wanted.length; i += 5) {
         const chunk = wanted.slice(i, i + 5);
-        const results = await Promise.all(chunk.map((id) => opts.client!.getItem(id)));
+        const results = await Promise.all(chunk.map((id) => opts.client!.getItem(id, version)));
         for (const [j, result] of results.entries()) await storeBlizzardItem(db, result, chunk[j]!, now);
       }
       rows = await db.select().from(wowItems).where(inArray(wowItems.itemId, ids));
@@ -166,7 +170,8 @@ export async function listKnownItems(db: Db, limit = 1000) {
 }
 
 /**
- * Daily: refreshes Blizzard data older than 25 days, and deletes Blizzard data that couldn't be refreshed within
+ * Daily: refreshes Blizzard data older than 25 days (WoW: Forever's namespace first, then TBC Anniversary's for items
+ * Forever doesn't have), and deletes Blizzard data that couldn't be refreshed within
  * 30 days (rows named by Blizzard go entirely; otherwise just the Blizzard details).
  */
 export async function refreshItemCache(db: Db, client: ItemLookupClient | null, now = new Date()) {
@@ -179,7 +184,8 @@ export async function refreshItemCache(db: Db, client: ItemLookupClient | null, 
       .orderBy(asc(wowItems.blizzardFetchedAt))
       .limit(REFRESH_BATCH);
     for (const { itemId } of due) {
-      const result = await client.getItem(itemId);
+      let result = await client.getItem(itemId, "forever");
+      if (result.status === "missing") result = await client.getItem(itemId, "anniversary");
       if (result.status === "ok") {
         await storeBlizzardItem(db, result, itemId, now);
         refreshed++;

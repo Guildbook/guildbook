@@ -5,14 +5,14 @@ import { VerifiedSeal } from "@/components/verified-seal";
 import { db } from "@/db";
 import { formatDate } from "@/lib/format";
 import { FACTION_LABELS, REGION_LABELS, RULESET_INFO } from "@/lib/game";
-import { VERSION_INFO } from "@/lib/game-versions";
+import { realmLabel, VERSION_INFO } from "@/lib/game-versions";
 import { VERIFICATION_GRACE_DAYS } from "@/lib/guild-identity";
 import { guildHref } from "@/lib/paths";
-import { claimGuildNameAction, claimGuildSlugAction, verifyGuildAction } from "@/server/actions/verification";
+import { claimGuildNameAction, claimGuildSlugAction, promoteGuildMasterAction, verifyGuildAction } from "@/server/actions/verification";
 import { battlenetEnabled, blizzardConfigFromEnv } from "@/server/blizzard";
 import type { Guild } from "@/server/context";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
-import { getSlugClaim, isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
+import { getSlugClaim, guildMasterHandover, isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -23,25 +23,23 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
       <Panel title="Verify guild" actions={<Tag>Coming soon</Tag>}>
         <div className="space-y-2 text-sm" data-testid="verify-guild">
           <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-bone" data-testid="verify-coming-soon">
-            Battle.net verification for {VERSION_INFO[guild.gameVersion].label} guilds is coming soon.
-          </p>
-          <p className="leading-relaxed text-muted">
-            Until then your guild works as usual, without the verified seal. When verification opens, the Guild Master links
-            Battle.net on{" "}
-            <Link href={guildHref(guild.slug, "/members/characters")} className="link">
-              My Characters
-            </Link>{" "}
-            and checks from here.
+            Battle.net verification for {VERSION_INFO[guild.gameVersion].label} guilds is coming soon. Until then your guild
+            works as usual, without the verified seal.
           </p>
         </div>
       </Panel>
     );
   }
-  const [slugClaim, current] = await Promise.all([getSlugClaim(db, guild), getRequestHost()]);
+  const [slugClaim, current, handover] = await Promise.all([getSlugClaim(db, guild), getRequestHost(), guildMasterHandover(db, guild)]);
+  const founderNotGm = !guild.verifiedAt ? guild.setup.founderNotGm : undefined;
   const enabled = battlenetEnabled(blizzardConfigFromEnv());
   const verified = Boolean(guild.verifiedAt);
   const result = guild.verificationResult;
-  const preLaunch = isPreLaunch(new Date());
+  const preLaunch = isPreLaunch(new Date(), guild.gameVersion);
+  const versionLabel = VERSION_INFO[guild.gameVersion].label;
+  const where = guild.realmSlug
+    ? `on ${realmLabel(guild.gameVersion, guild.realmSlug, guild.region)}`
+    : `on the ${RULESET_INFO[guild.ruleset].label} ruleset in the ${REGION_LABELS[guild.region]} region`;
   const claim = !verified && result?.claim ? result.claim : null;
   const lapseOn = guild.verificationFailingSince
     ? new Date(guild.verificationFailingSince.getTime() + VERIFICATION_GRACE_DAYS * DAY_MS)
@@ -60,11 +58,28 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
           <Link href={guildHref(guild.slug, "/members/characters")} className="link">
             My Characters
           </Link>
-          . One of their WoW: Forever characters must be Guild Master (rank 0) of an in-game guild named exactly{" "}
-          <strong className="text-bone">{guild.name}</strong>, {FACTION_LABELS[guild.faction]}, on the{" "}
-          {RULESET_INFO[guild.ruleset].label} ruleset in the {REGION_LABELS[guild.region]} region. Guildbook checks again every day; after {VERIFICATION_GRACE_DAYS} days of
-          failed checks the seal is removed.
+          . One of their {versionLabel} characters must be Guild Master (rank 0) of an in-game guild named exactly{" "}
+          <strong className="text-bone">{guild.name}</strong>, {FACTION_LABELS[guild.faction]}, {where}. Guildbook checks
+          again every day; after {VERIFICATION_GRACE_DAYS} days of failed checks the seal is removed.
         </p>
+        {!verified && founderNotGm && (
+          <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-bone" data-testid="verify-founder-not-gm">
+            {founderNotGm.characterName} is in {guild.name} in game
+            {founderNotGm.rank != null ? ` (rank ${founderNotGm.rank})` : ""} but isn&apos;t its Guild Master, so the Guild
+            Master verifies. Send them the invite link from the{" "}
+            <Link href={guildHref(guild.slug, "/admin/setup")} className="link">
+              setup checklist
+            </Link>
+            , then give them an admin rank under Members once they have joined.
+          </p>
+        )}
+        {!verified && !founderNotGm && (
+          <p className="leading-relaxed text-muted" data-testid="verify-not-gm">
+            Not the in-game Guild Master? The guild works fully without the seal. Send the Guild Master the invite link from
+            the setup checklist; once they have joined, give them an admin rank under Members so they can link Battle.net
+            and check from here.
+          </p>
+        )}
 
         {!verified && preLaunch && (
           <p className="rounded border border-gold-dim/60 bg-gold/5 px-3 py-2 text-bone" data-testid="verify-prelaunch">
@@ -100,6 +115,26 @@ export async function VerifyGuildPanel({ guild }: { guild: Guild }) {
           </SubmitButton>
           <FormMessage className="mt-2" />
         </ActionForm>
+
+        {handover && (
+          <div className="space-y-2 border-t border-line pt-4" data-testid="guild-master-handover">
+            <h3 className="font-display text-sm tracking-wide text-gold">Hand over the top rank</h3>
+            <p className="text-muted">
+              {handover.characterName ?? "The verified Guild Master"} verified the guild but isn&apos;t on its top rank,{" "}
+              {handover.topRank.name}. Give it to them so the site matches the game. Your own rank doesn&apos;t change; you can
+              step down under Members afterwards.
+            </p>
+            <ActionForm
+              action={promoteGuildMasterAction.bind(null, guild.slug)}
+              confirm={`Give ${handover.characterName ?? "the Guild Master"} the ${handover.topRank.name} rank?`}
+            >
+              <SubmitButton size="sm" variant="ghost" pendingLabel="Handing over...">
+                Give them {handover.topRank.name}
+              </SubmitButton>
+              <FormMessage className="mt-2" />
+            </ActionForm>
+          </div>
+        )}
 
         {claim && (
           <div className="space-y-2 border-t border-line pt-4" data-testid="claim-name">

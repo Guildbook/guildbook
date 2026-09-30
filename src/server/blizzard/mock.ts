@@ -9,6 +9,12 @@ import { namespaceFor, namespaceTemplate } from "./config";
  * (derived from the `mock-<seed>` authorization code) holding the fixture characters below: the US ones, plus one EU
  * character, with account-unique character IDs. A seed containing `eu-forbidden` gets 403 on every EU profile read,
  * as for an account without a European licence.
+ *
+ * TBC Anniversary lives in `profile-classicann-*` / `dynamic-classicann-*`. Every account holds Elowen (no guild); a
+ * seed containing `ann-gm`, `ann-member` or `ann-realm` adds a character that is Guild Master of <Mirkwood> on
+ * Dreamscythe, a rank 3 member of it, or Guild Master of another <Mirkwood> on Nightslayer; `ann-guild-<tag>` names
+ * that guild <Mirkwood tag> instead, so repeated runs don't collide on one guild identity. In mock mode the link
+ * route's seed is `<user id>.<discord id>`, so an e2e run picks these through the Discord ID it signs in with.
  */
 
 interface MockRealm {
@@ -48,8 +54,12 @@ export const MOCK_CHARACTERS: readonly MockCharacter[] = [
 ];
 
 const DREAMSCYTHE: MockRealm = { id: 6225, slug: "dreamscythe", name: "Dreamscythe", type: "NORMAL" };
+const NIGHTSLAYER: MockRealm = { id: 6226, slug: "nightslayer", name: "Nightslayer", type: "PVP" };
+const THUNDERSTRIKE: MockRealm = { id: 6409, slug: "thunderstrike", name: "Thunderstrike", type: "NORMAL" };
 const HOLLOWMERE: MockRealm = { id: 7101, slug: "hollowmere", name: "Hollowmere", type: "NORMAL" };
 const REALMS: Record<Region, MockRealm[]> = { us: [CRUSADERS_REACH, SILVERPINE, DREAMSCYTHE], eu: [HOLLOWMERE] };
+/** The `dynamic-classicann-*` realm index. */
+const ANNIVERSARY_REALMS: Record<Region, MockRealm[]> = { us: [DREAMSCYTHE, NIGHTSLAYER], eu: [THUNDERSTRIKE] };
 
 /** On an EU Forever realm: listed for EU guilds only. */
 export const MOCK_EU_CHARACTERS: readonly MockCharacter[] = [
@@ -69,9 +79,14 @@ export const MOCK_GUILD_CRESTS: Record<string, unknown> = {
     border: { id: 0, media: { id: 0 }, color: { id: 3, rgba: { r: 103, g: 86, b: 0, a: 1 } } },
     background: { color: { id: 2, rgba: { r: 158, g: 0, b: 54, a: 1 } } },
   },
+  Mirkwood: {
+    emblem: { id: 31, media: { id: 31 }, color: { id: 6, rgba: { r: 62, g: 142, b: 60, a: 1 } } },
+    border: { id: 2, media: { id: 2 }, color: { id: 1, rgba: { r: 44, g: 36, b: 22, a: 1 } } },
+    background: { color: { id: 40, rgba: { r: 22, g: 58, b: 33, a: 1 } } },
+  },
 };
 
-/** On a Classic Anniversary realm, served from `profile-classicann-*`: listed on the account but never importable. */
+/** On a TBC Anniversary realm, served from `profile-classicann-*`: every account holds her. */
 export const MOCK_ANNIVERSARY_CHARACTER: MockCharacter = {
   name: "Elowen",
   level: 24,
@@ -84,7 +99,28 @@ export const MOCK_ANNIVERSARY_CHARACTER: MockCharacter = {
   realm: DREAMSCYTHE,
   guild: null,
 };
+
+/** TBC Anniversary characters an account holds when its seed contains the key (see the header comment). */
+export const MOCK_ANNIVERSARY_ROLES: Record<"ann-gm" | "ann-member" | "ann-realm", MockCharacter> = {
+  "ann-gm": { name: "Thranduil", level: 70, currentLevel: 70, classId: 2, className: "Paladin", raceId: 10, race: "Blood Elf", faction: "HORDE", realm: DREAMSCYTHE, guild: "Mirkwood", guildRank: 0 },
+  "ann-member": { name: "Mattaeis", level: 68, currentLevel: 70, classId: 3, className: "Hunter", raceId: 10, race: "Blood Elf", faction: "HORDE", realm: DREAMSCYTHE, guild: "Mirkwood", guildRank: 3 },
+  "ann-realm": { name: "Galadhon", level: 70, currentLevel: 70, classId: 1, className: "Warrior", raceId: 2, race: "Orc", faction: "HORDE", realm: NIGHTSLAYER, guild: "Mirkwood", guildRank: 0 },
+};
+const ANNIVERSARY_ALL: readonly MockCharacter[] = [MOCK_ANNIVERSARY_CHARACTER, ...Object.values(MOCK_ANNIVERSARY_ROLES)];
 const ANNIVERSARY_INDEX = 90;
+
+function anniversaryCharactersFor(seed: string): MockCharacter[] {
+  return [MOCK_ANNIVERSARY_CHARACTER, ...Object.entries(MOCK_ANNIVERSARY_ROLES).flatMap(([k, c]) => (seed.includes(k) ? [c] : []))];
+}
+
+/** The in-game guild of an account's Anniversary role characters (see the header comment). */
+function anniversaryGuildName(seed: string): string {
+  const tag = seed.match(/ann-guild-([a-z0-9]+)/i)?.[1];
+  return tag ? `Mirkwood ${tag}` : "Mirkwood";
+}
+
+/** Index of an Anniversary fixture, stable across accounts, so IDs don't depend on which roles an account holds. */
+const anniversaryIndex = (c: MockCharacter) => ANNIVERSARY_INDEX + ANNIVERSARY_ALL.indexOf(c);
 
 function hashNumber(seed: string, digits: number): number {
   return parseInt(createHash("sha256").update(seed).digest("hex").slice(0, 12), 16) % 10 ** digits;
@@ -102,7 +138,12 @@ function mockCharacterId(seed: string, index: number): string {
 const registry: Map<string, string> = ((globalThis as { __bnetMockRegistry?: Map<string, string> }).__bnetMockRegistry ??=
   new Map());
 
-const key = (region: Region, realmSlug: string, name: string) => `${region}/${realmSlug}/${name.toLowerCase()}`;
+/** The guild name each listed Anniversary role character was handed out with, keyed like `registry`. */
+const anniversaryGuilds: Map<string, string> = ((globalThis as { __bnetMockAnnGuilds?: Map<string, string> }).__bnetMockAnnGuilds ??=
+  new Map());
+
+const key = (region: Region, realmSlug: string, name: string, anniversary = false) =>
+  `${anniversary ? "classicann/" : ""}${region}/${realmSlug}/${name.toLowerCase()}`;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -146,8 +187,18 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
     const path = u.pathname;
     const region = regionOf(u);
     const foreverNamespace = namespaceFor(template, region);
-    const offset = indexOffset(region);
-    const fixtures = charactersIn(region);
+    const namespace = u.searchParams.get("namespace") ?? "";
+    const anniversary = namespace.includes("classicann") && namespace !== foreverNamespace;
+    const offset = anniversary ? 0 : indexOffset(region);
+    const fixtures: readonly MockCharacter[] = anniversary ? (region === "us" ? ANNIVERSARY_ALL : []) : charactersIn(region);
+    const indexOf = (c: MockCharacter) => (anniversary ? anniversaryIndex(c) : offset + fixtures.indexOf(c));
+    const guildNamespace = anniversary ? namespace : foreverNamespace;
+    /** An Anniversary role character in the guild of `seed`'s account, or of whoever last listed it. */
+    const inGuild = (c: MockCharacter, seed: string | null): MockCharacter => {
+      if (!anniversary || !c.guild) return c;
+      const name = seed ? anniversaryGuildName(seed) : anniversaryGuilds.get(key(region, c.realm.slug, c.name, true));
+      return name ? { ...c, guild: name } : c;
+    };
 
     if (path.endsWith("/token")) {
       const body = new URLSearchParams(typeof init?.body === "string" ? init.body : (init?.body as URLSearchParams | undefined));
@@ -167,10 +218,13 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
     if (path === "/profile/user/wow") {
       const seed = userSeed(token);
       if (!seed) return json({}, 401);
-      const namespace = u.searchParams.get("namespace") ?? "";
       if (region === "eu" && seed.includes("eu-forbidden")) return json({ code: 403, detail: "Forbidden" }, 403);
-      if (region === "us" && namespace.startsWith("profile-classicann-") && namespace !== foreverNamespace) {
-        const characters = [characterJson(seed, MOCK_ANNIVERSARY_CHARACTER, ANNIVERSARY_INDEX)];
+      if (region === "us" && anniversary) {
+        const characters = anniversaryCharactersFor(seed).map((c) => {
+          registry.set(key(region, c.realm.slug, c.name, true), mockCharacterId(seed, anniversaryIndex(c)));
+          if (c.guild) anniversaryGuilds.set(key(region, c.realm.slug, c.name, true), anniversaryGuildName(seed));
+          return characterJson(seed, c, anniversaryIndex(c));
+        });
         return json({ id: Number(mockAccountId(seed)), wow_accounts: [{ id: 2, characters }] });
       }
       if (namespace !== foreverNamespace) return json({ code: 404, detail: "Not Found" }, 404);
@@ -184,10 +238,10 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
     const profile = path.match(/^\/profile\/wow\/character\/([^/]+)\/([^/]+)$/);
     if (profile) {
       const [, realmSlug, name] = profile.map(decodeURIComponent) as [string, string, string];
-      const index = fixtures.findIndex((c) => c.realm.slug === realmSlug && c.name.toLowerCase() === name);
-      const c = fixtures[index];
       const seed = userSeed(token);
-      const id = seed ? mockCharacterId(seed, offset + index) : registry.get(key(region, realmSlug, name));
+      const found = fixtures.find((x) => x.realm.slug === realmSlug && x.name.toLowerCase() === name);
+      const c = found && inGuild(found, seed);
+      const id = !found ? null : seed ? mockCharacterId(seed, indexOf(found)) : registry.get(key(region, realmSlug, name, anniversary));
       if (!c || !id) return json({ code: 404 }, 404);
       return json({
         id: Number(id),
@@ -200,7 +254,7 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
         ...(c.guild
           ? {
               guild: {
-                key: { href: `${u.origin}/data/wow/guild/${c.realm.slug}/${mockGuildSlug(c.guild)}?namespace=${foreverNamespace}` },
+                key: { href: `${u.origin}/data/wow/guild/${c.realm.slug}/${mockGuildSlug(c.guild)}?namespace=${guildNamespace}` },
                 name: c.guild,
                 realm: { slug: c.realm.slug, name: c.realm.name },
                 faction: { type: c.faction },
@@ -212,7 +266,7 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
 
     const realm = path.match(/^\/data\/wow\/realm\/([^/]+)$/);
     if (realm) {
-      const r = REALMS[region].find((x) => x.slug === decodeURIComponent(realm[1]!));
+      const r = (anniversary ? ANNIVERSARY_REALMS : REALMS)[region].find((x) => x.slug === decodeURIComponent(realm[1]!));
       if (!r) return json({ code: 404 }, 404);
       return json({ id: r.id, slug: r.slug, name: r.name, type: { type: r.type, name: r.type === "PVP" ? "PvP" : "Normal" } });
     }
@@ -220,9 +274,10 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
     const roster = path.match(/^\/data\/wow\/guild\/([^/]+)\/([^/]+)\/roster$/);
     if (roster) {
       const [, realmSlug, guildSlug] = roster.map(decodeURIComponent) as [string, string, string];
-      const members = fixtures.flatMap((c) => {
+      const listed = fixtures.map((c) => inGuild(c, null));
+      const members = listed.flatMap((c) => {
         if (!c.guild || c.realm.slug !== realmSlug || mockGuildSlug(c.guild) !== guildSlug) return [];
-        const id = registry.get(key(region, c.realm.slug, c.name));
+        const id = registry.get(key(region, c.realm.slug, c.name, anniversary));
         if (!id) return [];
         return [
           {
@@ -239,19 +294,20 @@ export function createMockFetch(profileNamespace = "profile-classic1x-{region}")
         ];
       });
       if (members.length === 0) return json({ code: 404 }, 404);
-      return json({ guild: { name: fixtures.find((c) => c.guild && mockGuildSlug(c.guild) === guildSlug)?.guild }, members });
+      return json({ guild: { name: listed.find((c) => c.guild && mockGuildSlug(c.guild) === guildSlug)?.guild }, members });
     }
 
     const guild = path.match(/^\/data\/wow\/guild\/([^/]+)\/([^/]+)$/);
     if (guild) {
       const [, realmSlug, guildSlug] = guild.map(decodeURIComponent) as [string, string, string];
-      const member = fixtures.find((c) => c.guild && c.realm.slug === realmSlug && mockGuildSlug(c.guild) === guildSlug);
+      const member = fixtures.map((c) => inGuild(c, null)).find((c) => c.guild && c.realm.slug === realmSlug && mockGuildSlug(c.guild) === guildSlug);
       if (!member?.guild) return json({ code: 404 }, 404);
+      const crest = MOCK_GUILD_CRESTS[member.guild] ?? (member.guild.startsWith("Mirkwood") ? MOCK_GUILD_CRESTS.Mirkwood : undefined);
       return json({
         name: member.guild,
         realm: { slug: member.realm.slug, name: member.realm.name },
         faction: { type: member.faction },
-        ...(MOCK_GUILD_CRESTS[member.guild] ? { crest: MOCK_GUILD_CRESTS[member.guild] } : {}),
+        ...(crest ? { crest } : {}),
       });
     }
 

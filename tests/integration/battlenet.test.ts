@@ -65,18 +65,16 @@ describe("linking", () => {
     const [row] = await db.select().from(battlenetLinks).where(eq(battlenetLinks.userId, visitor.userId));
     expect(row).toMatchObject({ region: "us", snapshotStatus: "ok" });
     expect(row!.battletag).toMatch(/^Pilgrim#\d{4}$/);
-    expect(row!.characters.map((c) => [c.name, c.region])).toEqual([
-      ["Aldric", "us"],
-      ["Brenna", "us"],
-      ["Corwin", "us"],
-      ["Grukk", "us"],
-      ["Isolde", "eu"],
+    expect(row!.characters.map((c) => [c.name, c.region, c.gameVersion ?? "forever"])).toEqual([
+      ["Aldric", "us", "forever"],
+      ["Brenna", "us", "forever"],
+      ["Corwin", "us", "forever"],
+      ["Grukk", "us", "forever"],
+      ["Elowen", "us", "anniversary"],
+      ["Isolde", "eu", "forever"],
     ]);
-    // The Anniversary character is recorded as found but excluded, never offered for import.
-    expect(row!.scan).toMatchObject({
-      foreverNamespace: "profile-classic1x-us",
-      excluded: [{ version: "anniversary", faction: "alliance", count: 1, examples: [{ name: "Elowen", realmName: "Dreamscythe" }] }],
-    });
+    // The Anniversary character is kept, tagged with its version, for Anniversary guilds only.
+    expect(row!.scan).toMatchObject({ foreverNamespace: "profile-classic1x-us", excluded: [] });
     expect(row!.scan!.foreverNamespaces).toEqual(["profile-classic1x-us", "profile-classic1x-eu"]);
     expect(row!.scan!.namespaces.map((n) => [n.namespace, n.region, n.httpStatus, n.characters])).toEqual([
       ["profile-classic1x-us", "us", 200, 5],
@@ -135,7 +133,7 @@ describe("linking", () => {
     await link(visitor, `${visitor.userId}-eu-forbidden`);
     const [row] = await db.select().from(battlenetLinks).where(eq(battlenetLinks.userId, visitor.userId));
     expect(row!.snapshotStatus).toBe("ok");
-    expect(row!.characters.map((c) => c.region)).toEqual(["us", "us", "us", "us"]);
+    expect(row!.characters.map((c) => c.region)).toEqual(["us", "us", "us", "us", "us"]);
     expect(row!.scan!.namespaces.filter((n) => n.region === "eu").map((n) => n.status)).toEqual(["forbidden", "forbidden", "forbidden", "forbidden"]);
   });
 
@@ -290,6 +288,29 @@ describe("verified applications", () => {
 });
 
 describe("member import", () => {
+  it("offers a TBC Anniversary guild only its realm's Anniversary characters, and confirms in-game members on import", async () => {
+    const guild = await createGuild(db, { name: "Mirkwood", faction: "horde", gameVersion: "anniversary", realmSlug: "dreamscythe" });
+    const member = await createMember(db, guild, "Member");
+    const { eligible, byName } = await link(member, `${member.userId}.ann-member`);
+    expect(eligible.map((c) => [c.name, c.gameVersion])).toEqual([["Mattaeis", "anniversary"]]);
+
+    const imported = await importBattlenetCharacter(
+      db,
+      member,
+      { bnetCharacterId: byName("Mattaeis").id, spec: "Beast Mastery", role: "ranged" },
+      anyRealm,
+      deps.client,
+    );
+    expect(imported.character).toMatchObject({ name: "Mattaeis", verified: true, realmSlug: "dreamscythe", region: "us" });
+    expect(imported.character.inGuildConfirmedAt).toBeInstanceOf(Date);
+
+    // A guild of the same name on another realm doesn't confirm anyone.
+    const elsewhere = await createGuild(db, { name: "Mirkwood", faction: "horde", gameVersion: "anniversary", realmSlug: "nightslayer", ruleset: "pvp" });
+    const other = await createMember(db, elsewhere, "Member");
+    const { eligible: offered } = await link(other, `${other.userId}.ann-member`);
+    expect(offered).toEqual([]);
+  });
+
   it("imports new verified characters, upgrades a matching manual one, and leaves other manual characters unverified", async () => {
     const guild = await createGuild(db, { faction: "alliance" });
     const member = await createMember(db, guild, "Squire");

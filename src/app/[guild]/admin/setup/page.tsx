@@ -52,6 +52,8 @@ export default async function SetupPage({ params }: PageProps<"/[guild]/admin/se
   const h = (path: string) => guildHref(slug, path);
   const order = guild.preset === "order";
   const canManageRanks = can(actor, "rank.manage");
+  const founderNotGm = !guild.verifiedAt ? guild.setup.founderNotGm : undefined;
+  const inviteUrl = guild.setup.inviteCode ? `${siteUrl}/apply?invite=${guild.setup.inviteCode}` : null;
 
   const extra: Partial<Record<SetupStep["key"], ReactNode>> = {
     ranks: !order && canManageRanks && (
@@ -179,6 +181,28 @@ export default async function SetupPage({ params }: PageProps<"/[guild]/admin/se
           <SetupProgress done={summary.done} total={summary.total} />
         </div>
       </PageHeader>
+
+      {founderNotGm && (
+        <Panel title="The Guild Master verifies" className="border-gold-dim/70" actions={<Tag>Unverified</Tag>}>
+          <div className="space-y-2 text-sm" data-testid="founder-not-gm">
+            <p className="leading-relaxed text-bone">
+              {founderNotGm.characterName} is in {guild.name} in game
+              {founderNotGm.rank != null ? ` (rank ${founderNotGm.rank})` : ""}, but isn&apos;t its Guild Master. Your guild
+              works fully as an unverified draft; only the in-game Guild Master can verify it.
+            </p>
+            <p className="leading-relaxed text-muted">
+              Send the Guild Master this invite link. Once they have joined, give them an admin rank under Members; they link
+              Battle.net on My Characters and check verification under Guild Settings. After that you can hand them the top
+              rank from the same panel.
+            </p>
+            {inviteUrl && (
+              <p data-testid="founder-invite">
+                Invite link: <span className="font-mono break-all text-bone">{inviteUrl}</span>
+              </p>
+            )}
+          </div>
+        </Panel>
+      )}
 
       {summary.offerNeutralDefaults && (
         <Panel title="Start from neutral defaults" className="border-gold-dim/70" actions={<Tag>Recommended</Tag>}>

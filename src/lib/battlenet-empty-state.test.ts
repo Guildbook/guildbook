@@ -43,8 +43,27 @@ describe("emptySnapshotMessage", () => {
     expect(emptySnapshotMessage(base)).toBe(
       "We found no WoW: Forever characters on Pilgrim#1234. We did find 2 Alliance characters in TBC Anniversary " +
         "(Elowen on Dreamscythe, Tamsin on Dreamscythe) and 1 Horde character in TBC Anniversary (Gorza on Nightslayer), " +
-        "but only WoW: Forever characters can be verified. World of Warcraft: Forever launches on Nov 4, 2026. " +
+        "but only WoW: Forever characters can join this guild. World of Warcraft: Forever launches on Nov 4, 2026. " +
         "Once you've made your character there, refresh your characters or reconnect.",
+    );
+  });
+
+  it("asks a link read before Anniversary imports to refresh, on an Anniversary guild", () => {
+    const text = emptySnapshotMessage({ ...base, version: "anniversary", guildRegion: "us" });
+    expect(text).toContain("were read before Guildbook could import TBC Anniversary characters");
+    expect(text).toContain("refresh your characters (or reconnect Battle.net) to import them");
+    expect(text).not.toContain("Nov 4");
+  });
+
+  it("names the guild's version when its characters are elsewhere", () => {
+    const text = emptySnapshotMessage({
+      ...base,
+      version: "anniversary",
+      guildRegion: "eu",
+      foreverCharacters: [{ faction: "horde", region: "us" }],
+    });
+    expect(text).toBe(
+      "Your TBC Anniversary characters on Pilgrim#1234 are in the Americas, but this guild is in the Europe region. Regions are separate worlds, so only Europe characters can join it.",
     );
   });
 

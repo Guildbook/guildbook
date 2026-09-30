@@ -40,7 +40,7 @@ describe("game versions", () => {
   });
 
   it("lists Anniversary realms per region, without Hardcore realms", () => {
-    expect(realmsFor("anniversary", "us").map((r) => r.slug)).toEqual(["dreamscythe", "nightslayer"]);
+    expect(realmsFor("anniversary", "us").map((r) => r.slug)).toEqual(["dreamscythe", "nightslayer", "maladath"]);
     expect(realmsFor("anniversary", "eu").map((r) => r.slug)).toEqual(["thunderstrike", "spineshatter"]);
     expect(realmsFor("anniversary").some((r) => r.ruleset === "hardcore")).toBe(false);
     expect(realmsFor("forever")).toEqual([]);

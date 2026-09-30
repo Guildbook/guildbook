@@ -14,7 +14,7 @@ import type { BlizzardClient, ProfileGuild } from "@/server/blizzard/client";
 import { battlenetEnabled } from "@/server/blizzard/config";
 import { DomainError, NotFoundError } from "@/server/errors";
 import { adminCandidates, isPreLaunch, verificationSupported } from "@/server/services/guild-verification";
-import { VERSION_INFO } from "@/lib/game-versions";
+import { isSupportedVersion, realmLabel, VERSION_INFO } from "@/lib/game-versions";
 
 /** Columns to select wherever a guild's crest is shown (spread into a Drizzle `select`). */
 export const guildLookColumns = {
@@ -88,11 +88,14 @@ const MAX_IMPORT_LOOKUPS = 10;
  */
 async function findInGameGuild(db: Db, guild: typeof guilds.$inferSelect, client: BlizzardClient, now: Date): Promise<ProfileGuild> {
   const region = REGION_LABELS[guild.region];
-  if (!verificationSupported(guild.gameVersion)) {
-    throw new DomainError(`Importing the tabard from ${VERSION_INFO[guild.gameVersion].label} is coming soon. Design it here for now.`);
+  const versionLabel = VERSION_INFO[guild.gameVersion].label;
+  if (!verificationSupported(guild.gameVersion) || !isSupportedVersion(guild.gameVersion)) {
+    throw new DomainError(`Importing the tabard from ${versionLabel} isn't available yet. Design it here for now.`);
   }
-  const { links, candidates: everywhere } = await adminCandidates(db, guild.id);
-  const candidates = everywhere.filter((c) => c.region === guild.region);
+  const version = guild.gameVersion;
+  const { links, candidates: all } = await adminCandidates(db, guild.id);
+  const everywhere = all.filter((c) => c.gameVersion === version);
+  const candidates = everywhere.filter((c) => c.region === guild.region && (!guild.realmSlug || c.realmSlug.toLowerCase() === guild.realmSlug));
   const tried = new Set<string>();
   const lookups: { name: string; realmSlug: string }[] = [];
   if (guild.verifiedAt && guild.verifiedCharacterName && guild.verifiedRealmSlug) {
@@ -104,15 +107,19 @@ async function findInGameGuild(db: Db, guild: typeof guilds.$inferSelect, client
   if (lookups.length === 0) {
     if (links === 0) throw new DomainError("No admin of this guild has linked Battle.net. Link it from My Characters, then import again.");
     if (everywhere.length > 0) {
-      throw new DomainError(`The admins' WoW: Forever characters are in another region, but this guild is in the ${region} region.`);
+      throw new DomainError(
+        guild.realmSlug
+          ? `None of the admins' ${versionLabel} characters is on ${realmLabel(version, guild.realmSlug, guild.region)}, this guild's realm.`
+          : `The admins' ${versionLabel} characters are in another region, but this guild is in the ${region} region.`,
+      );
     }
-    if (isPreLaunch(now)) {
+    if (isPreLaunch(now, version)) {
       throw new DomainError(
         "Importing opens once WoW: Forever characters exist. Forever launches on Nov 4, 2026; until then, design your tabard here.",
       );
     }
     throw new DomainError(
-      `No WoW: Forever characters in the ${region} region were found on the admins' linked Battle.net accounts. Refresh your characters on My Characters, then import again.`,
+      `No ${versionLabel} characters in the ${region} region were found on the admins' linked Battle.net accounts. Refresh your characters on My Characters, then import again.`,
     );
   }
 
@@ -122,14 +129,15 @@ async function findInGameGuild(db: Db, guild: typeof guilds.$inferSelect, client
     if (tried.has(key)) continue;
     tried.add(key);
     if (tried.size > MAX_IMPORT_LOOKUPS) break;
-    const lookup = await client.lookupCharacterProfile(guild.region, l.realmSlug, l.name);
+    const lookup = await client.lookupCharacterProfile(guild.region, l.realmSlug, l.name, version);
     if (lookup.status === "error") failed = true;
     const inGame = lookup.status === "ok" ? lookup.profile.guild : null;
-    if (inGame && sameGuildName(inGame.name, guild.name) && (!inGame.faction || inGame.faction === guild.faction)) return inGame;
+    const sameRealm = !guild.realmSlug || inGame?.realmSlug.toLowerCase() === guild.realmSlug;
+    if (inGame && sameRealm && sameGuildName(inGame.name, guild.name) && (!inGame.faction || inGame.faction === guild.faction)) return inGame;
   }
   if (failed) throw new DomainError("Battle.net didn't respond. Try again later.");
   throw new DomainError(
-    `None of the admins' WoW: Forever characters is in an in-game guild named ${guild.name} in the ${region} region. Check the guild's name, or refresh your characters on My Characters.`,
+    `None of the admins' ${versionLabel} characters is in an in-game guild named ${guild.name} ${guild.realmSlug ? `on ${realmLabel(version, guild.realmSlug, guild.region)}` : `in the ${region} region`}. Check the guild's name, or refresh your characters on My Characters.`,
   );
 }
 
@@ -148,7 +156,7 @@ export async function importInGameTabard(db: Db, actor: Actor, client: BlizzardC
   }
 
   const inGame = await findInGameGuild(db, guild, client, now);
-  const lookup = await client.lookupGuild(guild.region, inGame.realmSlug, inGame.nameSlug);
+  const lookup = await client.lookupGuild(guild.region, inGame.realmSlug, inGame.nameSlug, isSupportedVersion(guild.gameVersion) ? guild.gameVersion : "forever");
   if (lookup.status === "error") throw new DomainError("Battle.net didn't respond. Try again later.");
   if (lookup.status !== "ok" || !lookup.crest) {
     throw new DomainError(`Battle.net didn't return ${inGame.name}'s tabard. A guild that hasn't designed one in game has none to import.`);

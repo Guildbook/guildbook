@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { auditLog, battlenetLinks, type BattlenetCharacterSnapshot, guilds, memberships } from "@/db/schema";
+import { auditLog, battlenetLinks, type BattlenetCharacterSnapshot, guilds, memberships, ranks } from "@/db/schema";
 import type { Db } from "@/db/types";
 import type { Faction, Region } from "@/lib/game";
 import { BlizzardClient } from "@/server/blizzard/client";
@@ -10,7 +10,10 @@ import {
   claimGuildName,
   claimGuildSlug,
   getSlugClaim,
+  guildMasterHandover,
+  promoteVerifiedGuildMaster,
   recheckVerifiedGuilds,
+  recordFounderStanding,
   verifyGuild,
 } from "@/server/services/guild-verification";
 import { updateGuildSettings } from "@/server/services/ranks";
@@ -35,6 +38,8 @@ interface FakeCharacter {
   faction: Faction;
   /** Battle.net region; unset means US, and the snapshot leaves it out as snapshots from before regions did. */
   region?: Region;
+  /** Set for TBC Anniversary characters; unset means WoW: Forever. */
+  version?: "anniversary";
   guild?: { name: string; realm: string; faction: Faction };
 }
 
@@ -46,6 +51,8 @@ class FakeBattlenet {
   characters = new Map<string, FakeCharacter>();
   /** API regions that character profiles were requested from. */
   profileRegions: string[] = [];
+  /** Namespaces that character profiles were requested in. */
+  profileNamespaces: string[] = [];
   realmTypes = new Map<string, string>();
   /** Guild roster by `realm/name-slug`: member ranks by character id, or an HTTP status to answer with. */
   rosters = new Map<string, Map<number, number> | number>();
@@ -70,6 +77,7 @@ class FakeBattlenet {
     if (m) {
       const region = u.hostname.split(".")[0]!;
       this.profileRegions.push(region);
+      this.profileNamespaces.push(u.searchParams.get("namespace") ?? "");
       const c = this.characters.get(`${region}/${decodeURIComponent(m[1]!)}/${decodeURIComponent(m[2]!)}`);
       if (!c) return json({}, 404);
       return json({
@@ -145,6 +153,7 @@ async function link(userId: string, characters: FakeCharacter[]) {
     faction: c.faction,
     guildName: c.guild?.name ?? null,
     ...(c.region ? { region: c.region } : {}),
+    ...(c.version ? { gameVersion: c.version } : {}),
   }));
   await db.insert(battlenetLinks).values({ userId, battlenetId: `bnet-${++seq}`, battletag: `Tester#${seq}`, region: "us", characters: snapshot });
 }
@@ -162,12 +171,20 @@ async function actions(guildId: string) {
 function guildMaster(
   bnet: FakeBattlenet,
   guildName: string,
-  opts: { faction?: Faction; realm?: string; rank?: number; region?: Region } = {},
+  opts: { faction?: Faction; realm?: string; rank?: number; region?: Region; version?: "anniversary" } = {},
 ) {
   const realm = opts.realm ?? "forever-normal";
   const faction = opts.faction ?? "alliance";
   bnet.realmTypes.set(realm, bnet.realmTypes.get(realm) ?? "NORMAL");
-  const c = bnet.character({ id: ++seq, name: `Leader${seq}`, realm, faction, region: opts.region, guild: { name: guildName, realm, faction } });
+  const c = bnet.character({
+    id: ++seq,
+    name: `Leader${seq}`,
+    realm,
+    faction,
+    region: opts.region,
+    version: opts.version,
+    guild: { name: guildName, realm, faction },
+  });
   bnet.roster(realm, guildName, [[c.id, opts.rank ?? 0]]);
   return c;
 }
@@ -209,7 +226,7 @@ describe("verifying a guild", () => {
     expect(result.message).toMatch(/Forever launches on Nov 4, 2026/);
     expect((await row(guild.id)).verifiedAt).toBeNull();
 
-    expect((await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("no_forever_characters");
+    expect((await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("no_version_characters");
   });
 
   it("explains when no admin has linked Battle.net", async () => {
@@ -494,26 +511,131 @@ describe("changing a verified guild's identity", () => {
   });
 });
 
-describe("guilds in other game versions", () => {
-  it("says TBC Anniversary verification is coming soon, without calling Battle.net or failing", async () => {
-    const bnet = new FakeBattlenet();
-    const guild = await createGuild(db, { name: "Mirkwood", faction: "horde", gameVersion: "anniversary", realmSlug: "dreamscythe" });
+describe("TBC Anniversary guilds", () => {
+  async function annGuild(opts: { name?: string; realmSlug?: string } = {}) {
+    const guild = await createGuild(db, {
+      name: opts.name ?? `Mirkwood ${++seq}`,
+      faction: "horde",
+      gameVersion: "anniversary",
+      realmSlug: opts.realmSlug ?? "dreamscythe",
+    });
     const gm = await createMember(db, guild, "Guild Master");
-    const { state, result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
-    expect(state).toBe("unverified");
-    expect(result).toMatchObject({ verified: false, reason: "version_unsupported", conclusive: false });
-    expect(result.message).toMatch(/verification for TBC Anniversary guilds is coming soon/);
-    expect(bnet.profileRegions).toEqual([]);
-    await expect(claimGuildName(db, gm, bnet.client(), AFTER_LAUNCH)).rejects.toThrow(/coming soon/);
+    return { guild, gm };
+  }
+
+  it("verifies the Guild Master of the in-game guild on the guild's realm, in the Anniversary namespace", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm } = await annGuild({ name: "Mirkwood" });
+    const char = guildMaster(bnet, "Mirkwood", { realm: "dreamscythe", faction: "horde", version: "anniversary" });
+    await link(gm.userId, [char]);
+
+    const { state, result } = await verifyGuild(db, gm, bnet.client(), PRE_LAUNCH);
+    expect(state).toBe("verified");
+    expect(result).toMatchObject({ verified: true, characterName: char.name });
+    expect(await row(guild.guild.id)).toMatchObject({ verifiedRealmSlug: "dreamscythe", verifiedCharacterId: String(char.id) });
+    expect(bnet.profileNamespaces.every((n) => n === "profile-classicann-us")).toBe(true);
+    expect(bnet.profileNamespaces.length).toBeGreaterThan(0);
   });
 
-  it("never lapses an Anniversary guild in the daily re-check", async () => {
+  it("refuses the Guild Master of a same-named guild on another realm", async () => {
     const bnet = new FakeBattlenet();
-    const guild = await createGuild(db, { name: "Kept Seal", faction: "horde", gameVersion: "anniversary", realmSlug: "nightslayer", ruleset: "pvp" });
-    await db.update(guilds).set({ verifiedAt: AFTER_LAUNCH, verificationFailingSince: new Date(AFTER_LAUNCH.getTime() - 30 * DAY) }).where(eq(guilds.id, guild.guild.id));
-    const summary = await recheckVerifiedGuilds(db, bnet.client(), AFTER_LAUNCH);
-    expect(summary.inconclusive).toBeGreaterThanOrEqual(1);
-    const [row] = await db.select().from(guilds).where(eq(guilds.id, guild.guild.id));
-    expect(row!.verifiedAt).toEqual(AFTER_LAUNCH);
+    const { guild, gm } = await annGuild({ realmSlug: "dreamscythe" });
+    const char = guildMaster(bnet, guild.guild.name, { realm: "nightslayer", faction: "horde", version: "anniversary" });
+    await link(gm.userId, [char]);
+
+    const { state, result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect(state).toBe("unverified");
+    expect(result).toMatchObject({ verified: false, reason: "realm_mismatch", conclusive: true });
+    expect(result.message).toMatch(/Nightslayer/);
+    expect(result.message).toMatch(/Dreamscythe/);
+  });
+
+  it("explains a version mismatch when an admin only has characters in another version", async () => {
+    const bnet = new FakeBattlenet();
+    const { gm } = await annGuild();
+    await link(gm.userId, [guildMaster(bnet, "Somewhere Else")]);
+    const { result } = await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    expect(result).toMatchObject({ verified: false, reason: "version_mismatch" });
+    expect(result.message).toMatch(/TBC Anniversary/);
+
+    // And the other way round: a Forever guild whose admin only plays TBC Anniversary.
+    const annOnly = guildMaster(bnet, "Forever Folk", { realm: "dreamscythe", faction: "alliance", version: "anniversary" });
+    const forever = await setup({ name: "Forever Folk", characters: [annOnly] });
+    expect((await verifyGuild(db, forever.gm, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("version_mismatch");
+  });
+
+  it("re-checks Anniversary guilds daily, keeping a Guild Master who still holds rank 0", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm } = await annGuild();
+    const char = guildMaster(bnet, guild.guild.name, { realm: "dreamscythe", faction: "horde", version: "anniversary" });
+    await link(gm.userId, [char]);
+    await verifyGuild(db, gm, bnet.client(), AFTER_LAUNCH);
+    const later = new Date(AFTER_LAUNCH.getTime() + 2 * DAY);
+    await recheckVerifiedGuilds(db, bnet.client(), later);
+    expect(await row(guild.guild.id)).toMatchObject({ verifiedAt: AFTER_LAUNCH, verificationCheckedAt: later });
+  });
+
+  it("records a founder who is a member but not the Guild Master, and hands the top rank over once the Guild Master verifies", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm: founder } = await annGuild();
+    const name = guild.guild.name;
+    bnet.realmTypes.set("dreamscythe", "NORMAL");
+    const mine = bnet.character({ id: ++seq, name: `Member${seq}`, realm: "dreamscythe", faction: "horde", version: "anniversary", guild: { name, realm: "dreamscythe", faction: "horde" } });
+    const leader = bnet.character({ id: ++seq, name: `Leader${seq}`, realm: "dreamscythe", faction: "horde", version: "anniversary", guild: { name, realm: "dreamscythe", faction: "horde" } });
+    bnet.roster("dreamscythe", name, [
+      [leader.id, 0],
+      [mine.id, 3],
+    ]);
+    await link(founder.userId, [mine]);
+
+    expect(await recordFounderStanding(db, guild.guild.id, founder.userId, bnet.client(), AFTER_LAUNCH)).toMatchObject({
+      status: "member",
+      characterName: mine.name,
+      rank: 3,
+    });
+    const recorded = await row(guild.guild.id);
+    expect(recorded.setup.founderNotGm).toMatchObject({ characterName: mine.name, rank: 3 });
+    expect(recorded.setup.inviteCode).toBeTruthy();
+
+    // The founder can't verify: their character isn't rank 0.
+    expect((await verifyGuild(db, founder, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("not_guild_master");
+
+    // The in-game Guild Master joins on an admin rank below the top one, links Battle.net and verifies.
+    const [coLeader] = await db
+      .insert(ranks)
+      .values({ guildId: guild.guild.id, name: "Co-Leader", sortOrder: 999, tier: "admin" })
+      .returning();
+    const gm = await createMember(db, guild, "Officer");
+    await db.update(memberships).set({ rankId: coLeader!.id }).where(eq(memberships.id, gm.membershipId!));
+    await link(gm.userId, [leader]);
+    expect((await verifyGuild(db, founder, bnet.client(), AFTER_LAUNCH)).state).toBe("verified");
+    const verified = await row(guild.guild.id);
+    expect(verified.verifiedUserId).toBe(gm.userId);
+    expect(verified.setup.founderNotGm).toBeUndefined();
+
+    const handover = await guildMasterHandover(db, verified);
+    expect(handover).toMatchObject({ membershipId: gm.membershipId, topRank: { name: "Guild Master" }, characterName: leader.name });
+    expect(await promoteVerifiedGuildMaster(db, founder)).toMatchObject({ rankName: "Guild Master", characterName: leader.name });
+    expect(await guildMasterHandover(db, verified)).toBeNull();
+    expect(await actions(guild.guild.id)).toContain("member.assignRank");
+    await expect(promoteVerifiedGuildMaster(db, founder)).rejects.toThrow(DomainError);
+  });
+
+  it("records the founder's standing when their own check finds them a member but not the Guild Master", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm: founder } = await annGuild();
+    await link(founder.userId, [guildMaster(bnet, guild.guild.name, { realm: "dreamscythe", faction: "horde", version: "anniversary", rank: 2 })]);
+    expect((await verifyGuild(db, founder, bnet.client(), AFTER_LAUNCH)).result.reason).toBe("not_guild_master");
+    const recorded = await row(guild.guild.id);
+    expect(recorded.setup.founderNotGm).toMatchObject({ rank: 2 });
+    expect(recorded.setup.inviteCode).toBeTruthy();
+  });
+
+  it("records nothing for a founder who is the in-game Guild Master", async () => {
+    const bnet = new FakeBattlenet();
+    const { guild, gm } = await annGuild();
+    await link(gm.userId, [guildMaster(bnet, guild.guild.name, { realm: "dreamscythe", faction: "horde", version: "anniversary" })]);
+    expect((await recordFounderStanding(db, guild.guild.id, gm.userId, bnet.client(), AFTER_LAUNCH)).status).toBe("guild_master");
+    expect((await row(guild.guild.id)).setup.founderNotGm).toBeUndefined();
   });
 });

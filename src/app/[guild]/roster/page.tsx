@@ -3,9 +3,10 @@ import Link from "next/link";
 import { ClassIcon } from "@/components/class-icon";
 import { FactionIcon } from "@/components/faction-icon";
 import { RankInsignia } from "@/components/rank-insignia";
-import { CharacterLink, ClassName, EmptyState, FactionBadge, PageHeader, RoleBadge, VerifiedMark } from "@/components/ui";
+import { CharacterLink, ClassName, EmptyState, FactionBadge, GuildMemberTag, PageHeader, RoleBadge, VerifiedMark } from "@/components/ui";
 import { db } from "@/db";
 import { CLASS_INFO, CLASSES, FACTION_LABELS, FACTIONS, type Faction } from "@/lib/game";
+import { maxLevelFor } from "@/lib/game-versions";
 import { guildWording } from "@/lib/guild-wording";
 import { insigniaFor } from "@/lib/insignia";
 import { guildHref } from "@/lib/paths";
@@ -25,6 +26,7 @@ export default async function RosterPage({ params, searchParams }: PageProps<"/[
   const faction = multiFaction ? (FACTIONS.find((f) => f === sp.faction) as Faction | undefined) : undefined;
   const roster = (await getRoster(db, guild.id)).filter((c) => !faction || c.faction === faction);
 
+  const maxLevel = maxLevelFor(guild.gameVersion);
   const filterLink = (f?: Faction) => (f ? `${guildHref(slug, "/roster")}?faction=${f}` : guildHref(slug, "/roster"));
 
   return (
@@ -67,9 +69,10 @@ export default async function RosterPage({ params, searchParams }: PageProps<"/[
                         <p className="flex items-center gap-1 truncate">
                           <CharacterLink guildSlug={slug} character={m} className="truncate" />
                           {m.verified && <VerifiedMark size={12} />}
+                          {guild.verifiedAt && m.verified && m.inGuildConfirmedAt && <GuildMemberTag guildName={guild.name} className="ml-1" />}
                         </p>
                         <p className="text-xs text-muted">
-                          {m.level < 60 && `Level ${m.level} `}
+                          {m.level < maxLevel && `Level ${m.level} `}
                           {m.spec}
                         </p>
                         <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gold-dim">

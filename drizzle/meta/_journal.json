@@ -148,6 +148,13 @@
       "when": 1790730800000,
       "tag": "0020_game_version",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790730900000,
+      "tag": "0021_character_in_guild",
+      "breakpoints": true
     }
   ]
 }

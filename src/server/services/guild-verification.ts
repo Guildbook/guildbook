@@ -1,9 +1,10 @@
-import { and, asc, eq, isNotNull, ne } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { battlenetLinks, type BattlenetCharacterSnapshot, guilds, memberships, ranks, type VerificationResult } from "@/db/schema";
 import { type Actor, assertCan } from "@/lib/authz/policy";
 import { FACTION_LABELS, type Faction, REGION_LABELS, type Region, RULESET_INFO, type Ruleset } from "@/lib/game";
-import { type GuildVersion, VERSION_INFO } from "@/lib/game-versions";
+import { type GuildVersion, isSupportedVersion, realmLabel, type SupportedGuildVersion, VERSION_INFO } from "@/lib/game-versions";
 import {
   cleanGuildName,
   describeIdentity,
@@ -14,9 +15,9 @@ import {
 } from "@/lib/guild-identity";
 import { slugProblem, suggestSlug } from "@/lib/hosts";
 import { recordAudit } from "@/server/audit";
-import type { BlizzardClient } from "@/server/blizzard/client";
+import type { BlizzardClient, CharacterProfile } from "@/server/blizzard/client";
 import { battlenetEnabled } from "@/server/blizzard/config";
-import { snapshotRegion } from "@/server/blizzard/filter";
+import { charactersForGuild, snapshotRegion, snapshotVersion } from "@/server/blizzard/filter";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
 import { sameIdentity } from "@/server/services/guilds";
@@ -28,8 +29,12 @@ export type VerificationReason =
   | "no_link"
   | "prelaunch"
   | "version_unsupported"
+  | "no_version_characters"
+  /** Stored results from before game versions; read as `no_version_characters`. */
   | "no_forever_characters"
+  | "version_mismatch"
   | "region_mismatch"
+  | "realm_mismatch"
   | "character_missing"
   | "not_in_guild"
   | "faction_mismatch"
@@ -86,11 +91,61 @@ export function isPreLaunch(now: Date, version: GuildVersion = "forever"): boole
   return Boolean(launch) && now.toISOString().slice(0, 10) < launch!;
 }
 
+/** The guild's version as one Battle.net verification knows; the others never reach a Blizzard lookup. */
+function lookupVersion(identity: GuildIdentity): SupportedGuildVersion {
+  return isSupportedVersion(identity.gameVersion) ? identity.gameVersion : "forever";
+}
+
+export interface InGameMembership {
+  guild: InGameGuild;
+  /** Roster rank (0 is the Guild Master), or null when the roster was unavailable or doesn't list the character. */
+  rank: number | null;
+  rosterAvailable: boolean;
+}
+
+/**
+ * Looks up a character's in-game guild for a guild's identity, in the guild's version namespace and region: the
+ * character profile summary for the guild, the realm's ruleset, and the roster for the rank. Fails with the first
+ * identity mismatch (faction, realm for versions with realms, ruleset). The name is left to the caller.
+ */
+async function inGameMembership(
+  client: BlizzardClient,
+  identity: GuildIdentity,
+  character: CheckedCharacter,
+): Promise<{ ok: true; membership: InGameMembership } | { ok: false; reason: VerificationReason; conclusive: boolean; inGame?: InGameGuild }> {
+  const version = lookupVersion(identity);
+  const lookup = await client.lookupCharacterProfile(identity.region, character.realmSlug, character.name, version);
+  if (lookup.status === "error") return { ok: false, reason: "blizzard_error", conclusive: false };
+  if (lookup.status === "missing" || lookup.profile.id !== character.id) return { ok: false, reason: "character_missing", conclusive: true };
+  const guild = lookup.profile.guild;
+  if (!guild) return { ok: false, reason: "not_in_guild", conclusive: true };
+
+  const realm = await client.getRealmRuleset(identity.region, guild.realmSlug, version);
+  if (realm.status === "error") return { ok: false, reason: "blizzard_error", conclusive: false };
+  const inGame: InGameGuild = {
+    name: guild.name,
+    realmSlug: guild.realmSlug,
+    faction: guild.faction ?? lookup.profile.faction,
+    ruleset: realm.ruleset,
+  };
+  if (inGame.faction && inGame.faction !== identity.faction) return { ok: false, reason: "faction_mismatch", conclusive: true, inGame };
+  if (VERSION_INFO[identity.gameVersion].realms && identity.realmSlug && guild.realmSlug.toLowerCase() !== identity.realmSlug) {
+    return { ok: false, reason: "realm_mismatch", conclusive: true, inGame };
+  }
+  if (!inGame.ruleset) return { ok: false, reason: "ruleset_unknown", conclusive: false, inGame };
+  if (inGame.ruleset !== identity.ruleset) return { ok: false, reason: "ruleset_mismatch", conclusive: true, inGame };
+
+  const roster = await client.lookupGuildRoster(identity.region, guild.realmSlug, guild.nameSlug, version);
+  if (roster.status !== "ok") return { ok: true, membership: { guild: inGame, rank: null, rosterAvailable: false } };
+  const member = roster.members.find((m) => m.id === character.id);
+  return { ok: true, membership: { guild: inGame, rank: member?.rank ?? null, rosterAvailable: true } };
+}
+
 /**
  * Checks one character against a guild's identity: its in-game guild (character profile summary), that guild's
- * realm ruleset (Game Data realm type) and the character's rank (guild roster, rank 0 = Guild Master). Every lookup
- * is in the guild's region: a character in another region can never match. All lookups use the app token; the
- * member's own token isn't needed.
+ * realm (versions with realms) and ruleset (Game Data realm type), and the character's rank (guild roster, rank 0 =
+ * Guild Master). Every lookup is in the guild's game version and region: a character elsewhere can never match. All
+ * lookups use the app token; the member's own token isn't needed.
  */
 export async function checkCharacter(
   client: BlizzardClient,
@@ -100,30 +155,49 @@ export async function checkCharacter(
   const fail = (reason: VerificationReason, conclusive: boolean, extra: Partial<Extract<CharacterCheck, { ok: false }>> = {}) =>
     ({ ok: false, reason, conclusive, character, ...extra }) as const;
 
-  const lookup = await client.lookupCharacterProfile(identity.region, character.realmSlug, character.name);
-  if (lookup.status === "error") return fail("blizzard_error", false);
-  if (lookup.status === "missing" || lookup.profile.id !== character.id) return fail("character_missing", true);
-  const guild = lookup.profile.guild;
-  if (!guild) return fail("not_in_guild", true);
-
-  const realm = await client.getRealmRuleset(identity.region, guild.realmSlug);
-  if (realm.status === "error") return fail("blizzard_error", false);
-  const inGame: InGameGuild = {
-    name: guild.name,
-    realmSlug: guild.realmSlug,
-    faction: guild.faction ?? lookup.profile.faction,
-    ruleset: realm.ruleset,
-  };
-  if (inGame.faction && inGame.faction !== identity.faction) return fail("faction_mismatch", true, { inGame });
-  if (!inGame.ruleset) return fail("ruleset_unknown", false, { inGame });
-  if (inGame.ruleset !== identity.ruleset) return fail("ruleset_mismatch", true, { inGame });
-
-  const roster = await client.lookupGuildRoster(identity.region, guild.realmSlug, guild.nameSlug);
-  if (roster.status !== "ok") return fail("roster_unavailable", false, { inGame });
-  const member = roster.members.find((m) => m.id === character.id);
-  if (!member || member.rank !== 0) return fail("not_guild_master", true, { inGame, rank: member?.rank ?? null });
-  if (!sameGuildName(guild.name, identity.name)) return fail("name_mismatch", true, { inGame, rank: 0 });
+  const found = await inGameMembership(client, identity, character);
+  if (!found.ok) return fail(found.reason, found.conclusive, found.inGame ? { inGame: found.inGame } : {});
+  const { guild: inGame, rank, rosterAvailable } = found.membership;
+  if (!rosterAvailable) return fail("roster_unavailable", false, { inGame });
+  if (rank !== 0) return fail("not_guild_master", true, { inGame, rank });
+  if (!sameGuildName(inGame.name, identity.name)) return fail("name_mismatch", true, { inGame, rank: 0 });
   return { ok: true, character, inGame };
+}
+
+/**
+ * Whether a character profile shows the character in the guild's in-game guild: same name and faction and, for
+ * versions with realms, the guild's realm. Region and version are fixed by where the profile was read.
+ */
+export function profileInGuild(
+  profile: Pick<CharacterProfile, "guild" | "faction">,
+  guild: Pick<GuildIdentity, "gameVersion" | "realmSlug" | "name" | "faction">,
+): boolean {
+  const inGame = profile.guild;
+  if (!inGame || !sameGuildName(inGame.name, guild.name)) return false;
+  const faction = inGame.faction ?? profile.faction;
+  if (faction && faction !== guild.faction) return false;
+  if (VERSION_INFO[guild.gameVersion].realms && guild.realmSlug && inGame.realmSlug.toLowerCase() !== guild.realmSlug) return false;
+  return true;
+}
+
+export type MembershipCheck =
+  | { status: "member"; inGame: InGameGuild; rank: number | null }
+  | { status: "not_member"; reason: VerificationReason; conclusive: boolean; inGame?: InGameGuild };
+
+/**
+ * Whether a character is in the guild's in-game guild: same name, faction, realm (versions with realms), ruleset and
+ * region, in the guild's version. The profile summary decides; the roster only adds the rank when Blizzard serves it.
+ */
+export async function checkGuildMembership(
+  client: BlizzardClient,
+  identity: GuildIdentity,
+  character: CheckedCharacter,
+): Promise<MembershipCheck> {
+  const found = await inGameMembership(client, identity, character);
+  if (!found.ok) return { status: "not_member", reason: found.reason, conclusive: found.conclusive, inGame: found.inGame };
+  const { guild: inGame, rank } = found.membership;
+  if (!sameGuildName(inGame.name, identity.name)) return { status: "not_member", reason: "name_mismatch", conclusive: true, inGame };
+  return { status: "member", inGame, rank };
 }
 
 /** Lower is closer to verified; picks which failure to explain when several characters were checked. */
@@ -133,6 +207,7 @@ function relevance(check: CharacterCheck, identity: GuildIdentity): number {
   const order: VerificationReason[] = [
     "not_guild_master",
     "roster_unavailable",
+    "realm_mismatch",
     "ruleset_mismatch",
     "faction_mismatch",
     "ruleset_unknown",
@@ -143,6 +218,7 @@ function relevance(check: CharacterCheck, identity: GuildIdentity): number {
     "not_guild_master",
     "roster_unavailable",
     "ruleset_unknown",
+    "realm_mismatch",
     "ruleset_mismatch",
     "faction_mismatch",
     "not_in_guild",
@@ -167,6 +243,7 @@ export function describeCheck(
   const who = "character" in check && check.character ? check.character.name : "The character";
   const inGame = "inGame" in check ? check.inGame : undefined;
   const guildName = inGame?.name ?? "its guild";
+  const version = VERSION_INFO[identity.gameVersion].label;
   switch (check.reason) {
     case "battlenet_disabled":
       return "Battle.net isn't configured on this site yet, so guilds can't be verified.";
@@ -176,10 +253,15 @@ export function describeCheck(
       return `Battle.net verification for ${VERSION_INFO[identity.gameVersion].label} guilds is coming soon. Until then the guild works as usual, without the verified badge.`;
     case "prelaunch":
       return `Verification opens once WoW: Forever characters exist. Forever launches on Nov 4, 2026, and Blizzard doesn't publish Forever characters yet. After launch, found the guild in game, refresh your Battle.net characters on My Characters and check again.`;
+    case "no_version_characters":
     case "no_forever_characters":
-      return `No WoW: Forever characters in the ${REGION_LABELS[identity.region]} region were found on the admins' linked Battle.net accounts. Refresh your characters on My Characters (or reconnect Battle.net), then check again.`;
+      return `No ${version} characters in the ${REGION_LABELS[identity.region]} region were found on the admins' linked Battle.net accounts. Refresh your characters on My Characters (or reconnect Battle.net), then check again.`;
+    case "version_mismatch":
+      return `The admins' linked Battle.net characters are in another game, but this is a ${version} guild. Refresh your characters on My Characters to pick up your ${version} characters, then check again.`;
     case "region_mismatch":
-      return `The admins' WoW: Forever characters are in another region, but this guild is in the ${REGION_LABELS[identity.region]} region. Regions are separate worlds; if the guild is in the wrong region, change it under Guild Settings.`;
+      return `The admins' ${version} characters are in another region, but this guild is in the ${REGION_LABELS[identity.region]} region. Regions are separate worlds; if the guild is in the wrong region, change it under Guild Settings.`;
+    case "realm_mismatch":
+      return `${who}'s guild, ${guildName}, is on ${realmLabel(identity.gameVersion, inGame?.realmSlug ?? "another realm")}, but this guild is on ${identity.realmSlug ? realmLabel(identity.gameVersion, identity.realmSlug, identity.region) : "another realm"}. If the guild is on the wrong realm, change it under Guild Settings while it is unverified.`;
     case "character_missing":
       return `${who} wasn't found on Battle.net (renamed, deleted, transferred, or not visible yet: profiles update after the character logs out).`;
     case "not_in_guild":
@@ -208,10 +290,11 @@ export function describeCheck(
 interface Candidate extends CheckedCharacter {
   region: Region;
   faction: Faction;
+  gameVersion: GuildVersion;
   snapshotGuildName: string | null;
 }
 
-/** Forever characters, in every region, on the linked Battle.net accounts of the guild's active admin-tier members. */
+/** Characters of every version, in every region, on the linked Battle.net accounts of the guild's active admin-tier members. */
 export async function adminCandidates(db: Db, guildId: string) {
   const rows = await db
     .select({ userId: memberships.userId, characters: battlenetLinks.characters })
@@ -228,6 +311,7 @@ export async function adminCandidates(db: Db, guildId: string) {
       userId: r.userId,
       region: snapshotRegion(c),
       faction: c.faction,
+      gameVersion: snapshotVersion(c),
       snapshotGuildName: c.guildName,
     })),
   );
@@ -238,13 +322,14 @@ function orderCandidates(candidates: Candidate[], identity: GuildIdentity, prefe
   const score = (c: Candidate) =>
     (c.snapshotGuildName && sameGuildName(c.snapshotGuildName, identity.name) ? 0 : 4) +
     (c.faction === identity.faction ? 0 : 2) +
+    (!identity.realmSlug || c.realmSlug.toLowerCase() === identity.realmSlug ? 0 : 2) +
     (c.userId === preferUserId ? 0 : 1);
   return [...candidates].sort((a, b) => score(a) - score(b));
 }
 
-/** Battle.net verification only knows WoW: Forever so far; TBC Anniversary verification is Phase 2. */
+/** Battle.net verification covers WoW: Forever and TBC Anniversary. */
 export function verificationSupported(version: GuildVersion): boolean {
-  return version === "forever";
+  return isSupportedVersion(version);
 }
 
 export function identityOf(guild: GuildIdentity): GuildIdentity {
@@ -278,10 +363,13 @@ export async function runVerificationCheck(
 
   const { links, candidates: everywhere } = await adminCandidates(db, guild.id);
   if (links === 0) return done({ ok: false, reason: "no_link", conclusive: true });
-  const candidates = everywhere.filter((c) => c.region === identity.region);
+  const sameVersion = everywhere.filter((c) => c.gameVersion === identity.gameVersion);
+  const candidates = sameVersion.filter((c) => c.region === identity.region);
   if (candidates.length === 0) {
-    if (everywhere.length > 0) return done({ ok: false, reason: "region_mismatch", conclusive: true });
-    return done({ ok: false, reason: isPreLaunch(now) ? "prelaunch" : "no_forever_characters", conclusive: true });
+    if (sameVersion.length > 0) return done({ ok: false, reason: "region_mismatch", conclusive: true });
+    if (isPreLaunch(now, identity.gameVersion)) return done({ ok: false, reason: "prelaunch", conclusive: true });
+    if (everywhere.length > 0) return done({ ok: false, reason: "version_mismatch", conclusive: true });
+    return done({ ok: false, reason: "no_version_characters", conclusive: true });
   }
 
   const checks: CharacterCheck[] = [];
@@ -340,6 +428,7 @@ async function applyRun(tx: Db, guild: GuildRow, run: VerificationRun, result: V
         verifiedRealmSlug: check.character.realmSlug,
         verifiedVia: "battlenet",
         verificationFailingSince: null,
+        setup: sql`${guilds.setup} - 'founderNotGm'`,
       })
       .where(eq(guilds.id, guild.id));
     if (!same) {
@@ -401,7 +490,25 @@ export async function verifyGuild(db: Db, actor: Actor, client: BlizzardClient, 
   const run = await runVerificationCheck(db, guild, client, { preferUserId: actor.userId, now });
   const result = toResult(run, await claimInfo(db, guild, run.check));
   const state = await db.transaction((tx) => applyRun(tx, guild, run, result, actor, now));
+  const { check } = run;
+  if (state !== "verified" && !check.ok && check.reason === "not_guild_master" && "character" in check && check.character?.userId === actor.userId) {
+    await noteFounderNotGm(db, guild, { characterName: check.character.name, rank: check.rank ?? null }, now);
+  }
   return { state, result };
+}
+
+/** Records that the guild's own admin is in the in-game guild but not its Guild Master, with an invite link for the GM. */
+async function noteFounderNotGm(db: Db, guild: GuildRow, member: { characterName: string; rank: number | null }, now: Date) {
+  await db
+    .update(guilds)
+    .set({
+      setup: {
+        ...guild.setup,
+        inviteCode: guild.setup.inviteCode ?? randomBytes(9).toString("base64url"),
+        founderNotGm: { ...member, checkedAt: now.toISOString() },
+      },
+    })
+    .where(eq(guilds.id, guild.id));
 }
 
 async function freeUnverifiedName(tx: Db, identity: GuildIdentity): Promise<string> {
@@ -483,6 +590,7 @@ export async function claimGuildName(db: Db, actor: Actor, client: BlizzardClien
           verifiedVia: "battlenet",
           verificationCheckedAt: now,
           verificationFailingSince: null,
+          setup: sql`${guilds.setup} - 'founderNotGm'`,
           verificationResult: {
             verified: true,
             reason: null,
@@ -684,4 +792,80 @@ export async function recheckVerifiedGuilds(db: Db, client: BlizzardClient, now 
     else if (state === "lapsed") summary.lapsed++;
   }
   return summary;
+}
+
+// --- Founders who aren't the Guild Master -------------------------------------
+
+/** Characters checked against Blizzard for the founder's standing, to bound API calls at creation. */
+const MAX_FOUNDER_CHECKS = 3;
+
+export type FounderStanding =
+  | { status: "guild_master"; characterName: string }
+  | { status: "member"; characterName: string; rank: number | null }
+  | { status: "unknown" };
+
+/**
+ * Right after a guild is founded: is the founder's linked character in the in-game guild, and is it the Guild Master?
+ * A member who isn't gets a setup note (`setup.founderNotGm`) and a draft invite link to hand to the Guild Master,
+ * who verifies once they have joined with an admin rank. Best effort: Blizzard failures leave the guild as it is.
+ */
+export async function recordFounderStanding(
+  db: Db,
+  guildId: string,
+  userId: string,
+  client: BlizzardClient,
+  now = new Date(),
+): Promise<FounderStanding> {
+  const guild = await loadGuild(db, guildId);
+  if (guild.verifiedAt || !isSupportedVersion(guild.gameVersion) || !battlenetEnabled(client.config)) return { status: "unknown" };
+  const [link] = await db.select({ characters: battlenetLinks.characters }).from(battlenetLinks).where(eq(battlenetLinks.userId, userId));
+  if (!link) return { status: "unknown" };
+  const identity = identityOf(guild);
+  const eligible = charactersForGuild(link.characters, { ...identity, realmSlugs: [] });
+  const named = (c: BattlenetCharacterSnapshot) => (c.guildName && sameGuildName(c.guildName, guild.name) ? 0 : 1);
+  let member: { characterName: string; rank: number | null } | null = null;
+  for (const c of [...eligible].sort((a, b) => named(a) - named(b)).slice(0, MAX_FOUNDER_CHECKS)) {
+    const check = await checkGuildMembership(client, identity, { id: c.id, name: c.name, realmSlug: c.realmSlug, userId });
+    if (check.status !== "member") continue;
+    if (check.rank === 0) return { status: "guild_master", characterName: c.name };
+    member ??= { characterName: c.name, rank: check.rank };
+  }
+  if (!member) return { status: "unknown" };
+  await noteFounderNotGm(db, guild, member, now);
+  return { status: "member", ...member };
+}
+
+/** The verified Guild Master's membership when it isn't on the guild's top rank yet, for the hand-over offer. */
+export async function guildMasterHandover(db: Db, guild: Pick<GuildRow, "id" | "verifiedAt" | "verifiedUserId" | "verifiedCharacterName">) {
+  if (!guild.verifiedAt || !guild.verifiedUserId) return null;
+  const ladder = await db.select().from(ranks).where(eq(ranks.guildId, guild.id)).orderBy(asc(ranks.sortOrder));
+  const top = ladder[0];
+  if (!top) return null;
+  const [gm] = await db
+    .select({ id: memberships.id, rankId: memberships.rankId })
+    .from(memberships)
+    .where(and(eq(memberships.guildId, guild.id), eq(memberships.userId, guild.verifiedUserId), eq(memberships.status, "active")));
+  if (!gm || gm.rankId === top.id) return null;
+  return { membershipId: gm.id, topRank: { id: top.id, name: top.name }, characterName: guild.verifiedCharacterName };
+}
+
+/**
+ * Hands the guild's top rank to the verified in-game Guild Master (a founder who isn't the Guild Master does this
+ * once they have verified). Other members keep their ranks; the founder can step down under Members afterwards.
+ */
+export async function promoteVerifiedGuildMaster(db: Db, actor: Actor) {
+  assertCan(actor, "guild.settings");
+  return db.transaction(async (tx) => {
+    const guild = await loadGuild(tx, actor.guildId);
+    const handover = await guildMasterHandover(tx, guild);
+    if (!handover) throw new DomainError("The verified Guild Master already holds the top rank, or the guild isn't verified.");
+    await tx.update(memberships).set({ rankId: handover.topRank.id, updatedAt: sql`now()` }).where(eq(memberships.id, handover.membershipId));
+    await recordAudit(tx, actor, {
+      action: "member.assignRank",
+      targetType: "membership",
+      targetId: handover.membershipId,
+      after: { rankId: handover.topRank.id, rankName: handover.topRank.name, characterName: handover.characterName, reason: "verified_guild_master" },
+    });
+    return { rankName: handover.topRank.name, characterName: handover.characterName };
+  });
 }

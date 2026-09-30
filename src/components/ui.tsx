@@ -122,6 +122,20 @@ export function VerifiedMark({
   );
 }
 
+/** A character Battle.net shows in the guild's in-game guild (`characters.in_guild_confirmed_at`). */
+export function GuildMemberTag({ guildName, className }: { guildName: string; className?: string }) {
+  return (
+    <span
+      className={clsx("inline-flex items-center gap-1 rounded border border-gold-dim/70 px-1.5 py-0.5 text-[0.65rem] tracking-wider text-gold uppercase", className)}
+      title={`Battle.net shows this character in ${guildName} in game`}
+      data-testid="guild-member-tag"
+    >
+      <VerifiedMark size={10} decorative />
+      Verified member
+    </span>
+  );
+}
+
 /** Officer-facing verification state of an application or character. */
 export function VerificationBadge({ verified }: { verified: boolean }) {
   return verified ? (

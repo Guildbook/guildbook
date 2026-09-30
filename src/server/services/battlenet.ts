@@ -10,7 +10,8 @@ import { type BlizzardClient, describeScanForLog, type RosterMember } from "@/se
 import { battlenetEnabled, blizzardConfigFromEnv, realmSlugsFor } from "@/server/blizzard/config";
 import { decryptToken, encryptToken } from "@/server/blizzard/crypto";
 import { charactersForGuild, snapshotRegion, snapshotVersion } from "@/server/blizzard/filter";
-import { hasSurnames } from "@/lib/game-versions";
+import { hasSurnames, isSupportedVersion } from "@/lib/game-versions";
+import { profileInGuild } from "@/server/services/guild-verification";
 import { isUniqueViolation } from "@/server/db-errors";
 import { DomainError, NotFoundError } from "@/server/errors";
 
@@ -64,7 +65,7 @@ export async function linkBattlenetAccount(db: Db, actor: Actor, raw: unknown, d
   const token = await client.exchangeCode(code, redirectUri);
   const account = await client.getUserInfo(token.accessToken);
   const snapshot = await client.getAccountCharacters(token.accessToken);
-  console.info(`[battlenet] link scan: ${describeScanForLog(snapshot.scan, snapshot.characters.length)}`);
+  console.info(`[battlenet] link scan: ${describeScanForLog(snapshot.scan, snapshot.characters)}`);
 
   try {
     return await db.transaction(async (tx) => {
@@ -118,7 +119,7 @@ export async function refreshBattlenetSnapshot(db: Db, actor: Actor, deps: Battl
     throw new DomainError("Your Battle.net authorization has expired. Reconnect Battle.net to refresh your characters.");
   }
   const snapshot = await deps.client.getAccountCharacters(decryptToken(row.accessTokenEnc!, deps.tokenKey));
-  console.info(`[battlenet] refresh scan: ${describeScanForLog(snapshot.scan, snapshot.characters.length)}`);
+  console.info(`[battlenet] refresh scan: ${describeScanForLog(snapshot.scan, snapshot.characters)}`);
   if (snapshot.status === "forbidden") {
     await db.update(battlenetLinks).set({ accessTokenEnc: null, tokenExpiresAt: null }).where(eq(battlenetLinks.userId, actor.userId));
     throw new DomainError("Battle.net refused the request. Reconnect Battle.net to refresh your characters.");
@@ -211,6 +212,7 @@ export async function importBattlenetCharacter(
   actor: Actor,
   raw: unknown,
   eligibility: Eligibility = defaultEligibility(),
+  client: BlizzardClient | null = null,
 ) {
   assertCan(actor, "character.manageOwn");
   if (!actor.membershipId) throw new DomainError("You need an active membership to manage characters.");
@@ -223,6 +225,7 @@ export async function importBattlenetCharacter(
   if (!isValidSpec(bnet.wowClass, input.spec)) {
     throw new DomainError(`${input.spec} is not a ${CLASS_INFO[bnet.wowClass].label} spec.`);
   }
+  const inGuildConfirmedAt = client ? await confirmInGuild(db, actor.guildId, bnet, client) : undefined;
 
   try {
     return await db.transaction(async (tx) => {
@@ -277,6 +280,7 @@ export async function importBattlenetCharacter(
         realmName: bnet.realmName,
         syncedAt: link.snapshotAt,
         isMain: makeMain,
+        ...(inGuildConfirmedAt !== undefined ? { inGuildConfirmedAt } : {}),
       };
       const [saved] = existing
         ? await tx
@@ -308,6 +312,30 @@ export async function importBattlenetCharacter(
     if (isUniqueViolation(err)) throw new DomainError(`A character named ${fullName(bnet.name, surname)} is already registered.`);
     throw err;
   }
+}
+
+/**
+ * Whether Battle.net shows the character in the guild's in-game guild (see `profileInGuild`): now when it does, null
+ * when it shows another guild or none, undefined when Blizzard couldn't answer (the stored value is kept).
+ */
+async function confirmInGuild(
+  db: Db,
+  guildId: string,
+  character: BattlenetCharacterSnapshot,
+  client: BlizzardClient,
+): Promise<Date | null | undefined> {
+  if (!battlenetEnabled(client.config)) return undefined;
+  const [guild] = await db
+    .select({ gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, name: guilds.name, faction: guilds.faction, region: guilds.region })
+    .from(guilds)
+    .where(eq(guilds.id, guildId));
+  if (!guild || !isSupportedVersion(guild.gameVersion)) return undefined;
+  const lookup = await client
+    .lookupCharacterProfile(guild.region, character.realmSlug, character.name, guild.gameVersion)
+    .catch(() => ({ status: "error" as const }));
+  if (lookup.status === "error") return undefined;
+  if (lookup.status === "missing" || lookup.profile.id !== character.id) return null;
+  return profileInGuild(lookup.profile, guild) ? new Date() : null;
 }
 
 // --- Sync ------------------------------------------------------------------
@@ -345,12 +373,16 @@ export async function runGuildCharacterSync(
       ),
     )
     .orderBy(asc(characters.name));
-  const [guild] = await db.select({ region: guilds.region }).from(guilds).where(eq(guilds.id, guildId));
+  const [guild] = await db
+    .select({ region: guilds.region, gameVersion: guilds.gameVersion, realmSlug: guilds.realmSlug, name: guilds.name, faction: guilds.faction })
+    .from(guilds)
+    .where(eq(guilds.id, guildId));
   const region = guild?.region ?? "us";
+  const version = guild && isSupportedVersion(guild.gameVersion) ? guild.gameVersion : "forever";
 
   const { guildRealmSlug, guildSlug, guildRegion } = client.config;
   let roster: Map<string, RosterMember> | null = null;
-  if (rows.length > 0 && guildRealmSlug && guildSlug && guildRegion === region) {
+  if (rows.length > 0 && version === "forever" && guildRealmSlug && guildSlug && guildRegion === region) {
     const members = await client.getGuildRoster(region, guildRealmSlug, guildSlug).catch(() => null);
     if (members) roster = new Map(members.map((m) => [m.id, m]));
   }
@@ -358,14 +390,17 @@ export async function runGuildCharacterSync(
   const summary: SyncSummary = { checked: rows.length, updated: 0, unchanged: 0, missing: 0, changes: [] };
   for (const row of rows) {
     const fromRoster = roster?.get(row.bnetCharacterId!);
-    const found =
-      fromRoster ?? (await client.getCharacterProfile(row.region ?? region, row.realmSlug!, row.name).catch(() => null));
+    const profile = fromRoster
+      ? null
+      : await client.getCharacterProfile(row.region ?? region, row.realmSlug!, row.name, undefined, version).catch(() => null);
+    const found = fromRoster ?? profile;
     if (!found || found.id !== row.bnetCharacterId || found.level < 1 || found.level > 100) {
       summary.missing++;
       continue;
     }
     const change: SyncSummary["changes"][number] = { characterName: fullName(row.name, row.surname) };
     const set: Partial<typeof characters.$inferInsert> = { syncedAt: new Date() };
+    if (profile && guild) set.inGuildConfirmedAt = profileInGuild(profile, guild) ? new Date() : null;
     if (found.level !== row.level) {
       set.level = found.level;
       change.level = [row.level, found.level];

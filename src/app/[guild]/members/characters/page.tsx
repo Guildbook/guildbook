@@ -11,6 +11,7 @@ import {
   ClassName,
   EmptyState,
   FactionBadge,
+  GuildMemberTag,
   PageHeader,
   Panel,
   RoleBadge,
@@ -21,10 +22,12 @@ import { db } from "@/db";
 import type { BattlenetCharacterSnapshot } from "@/db/schema";
 import { formatDateTime } from "@/lib/format";
 import { CLASS_INFO, fullName, PROFESSION_LABELS } from "@/lib/game";
+import { hasSurnames, realmLabel, SUPPORTED_GUILD_VERSIONS, VERSION_INFO } from "@/lib/game-versions";
 import { guildHref } from "@/lib/paths";
 import { importBattlenetCharacterAction } from "@/server/actions/battlenet";
 import { archiveCharacterAction, setMainCharacterAction } from "@/server/actions/member";
 import { battlenetEnabled, blizzardConfigFromEnv, snapshotRegion } from "@/server/blizzard";
+import { snapshotVersion } from "@/server/blizzard/filter";
 import { requirePage } from "@/server/context";
 import { getEligibleCharacters } from "@/server/services/battlenet";
 import { type CharacterWithProfessions, listOwnCharacters } from "@/server/services/characters";
@@ -35,10 +38,12 @@ function ImportRow({
   slug,
   bnet,
   existing,
+  surnames,
 }: {
   slug: string;
   bnet: BattlenetCharacterSnapshot;
   existing: CharacterWithProfessions | undefined;
+  surnames: boolean;
 }) {
   const info = CLASS_INFO[bnet.wowClass];
   const summary = (
@@ -71,7 +76,7 @@ function ImportRow({
       <ActionForm action={importBattlenetCharacterAction.bind(null, slug)} className="flex flex-wrap items-end gap-3">
         <input type="hidden" name="bnetCharacterId" value={bnet.id} />
         <div className="w-full">{summary}</div>
-        {bnet.surname ? (
+        {!surnames ? null : bnet.surname ? (
           <input type="hidden" name="surname" value={bnet.surname} />
         ) : (
           <label className="flex flex-col text-xs text-muted">
@@ -132,6 +137,14 @@ export default async function CharactersPage({ params, searchParams }: PageProps
     characters.find((c) => c.bnetCharacterId === b.id) ??
     characters.find((c) => !c.bnetCharacterId && c.name.toLowerCase() === b.name.toLowerCase());
   const toImport = bnet.characters.filter((b) => characters.every((c) => c.bnetCharacterId !== b.id)).length;
+  const versionLabel = VERSION_INFO[guild.gameVersion].label;
+  const surnames = hasSurnames(guild.gameVersion);
+  const otherVersions = bnet.link
+    ? SUPPORTED_GUILD_VERSIONS.filter((v) => v !== guild.gameVersion).flatMap((v) => {
+        const count = bnet.link!.characters.filter((c) => snapshotVersion(c) === v).length;
+        return count > 0 ? [`${count} ${VERSION_INFO[v].label} ${count === 1 ? "character" : "characters"}`] : [];
+      })
+    : [];
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -144,22 +157,32 @@ export default async function CharactersPage({ params, searchParams }: PageProps
             <div className="space-y-3">
               <BattlenetAccount link={bnet.link} slug={slug} returnTo={returnTo} timezone={guild.timezone} />
               {bnet.characters.length === 0 ? (
-                <EmptySnapshotNote link={bnet.link} faction={guild.faction} region={guild.region} />
+                <EmptySnapshotNote link={bnet.link} faction={guild.faction} region={guild.region} version={guild.gameVersion} />
               ) : (
                 <details className="group" open={sp.bnet === "linked" || undefined}>
                   <summary className="btn btn-primary btn-sm cursor-pointer list-none">
                     Import characters{toImport > 0 ? ` (${toImport})` : ""}
                   </summary>
                   <p className="mt-3 text-xs text-muted">
-                    Name, class and level come from Battle.net and are kept in sync. Pick your spec and role, and
-                    enter your surname if Battle.net doesn&apos;t provide it.
+                    Name, class and level come from Battle.net and are kept in sync. Pick your spec and role
+                    {surnames ? ", and enter your surname if Battle.net doesn't provide it" : ""}.
+                    {guild.realmSlug ? ` Characters in ${guild.name} in game show as verified members.` : ""}
                   </p>
+                  <h3 className="mt-3 font-display text-sm tracking-wide text-gold" data-testid="import-version-heading">
+                    {versionLabel} characters
+                    {guild.realmSlug ? ` on ${realmLabel(guild.gameVersion, guild.realmSlug, guild.region)}` : ""}
+                  </h3>
                   <ul className="divide-y divide-line">
                     {bnet.characters.map((b) => (
-                      <ImportRow key={b.id} slug={slug} bnet={b} existing={matchFor(b)} />
+                      <ImportRow key={b.id} slug={slug} bnet={b} existing={matchFor(b)} surnames={surnames} />
                     ))}
                   </ul>
                 </details>
+              )}
+              {otherVersions.length > 0 && (
+                <p className="text-xs text-muted" data-testid="other-version-characters">
+                  Also on this account: {otherVersions.join(", ")}. They join guilds of their own game.
+                </p>
               )}
             </div>
           ) : (
@@ -200,6 +223,7 @@ export default async function CharactersPage({ params, searchParams }: PageProps
                   {!guild.faction && <FactionBadge faction={c.faction} />}
                   <RoleBadge role={c.role} />
                   {!c.verified && <Tag>Unverified</Tag>}
+                  {guild.verifiedAt && c.verified && c.inGuildConfirmedAt && <GuildMemberTag guildName={guild.name} />}
                   {c.verified && c.region && <RegionTag region={c.region} className="self-center" />}
                 </div>
                 {c.verified && c.syncedAt && (

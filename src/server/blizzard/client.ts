@@ -1,7 +1,16 @@
 import type { BattlenetCharacterSnapshot, BattlenetExcludedGroup, BattlenetNamespaceScan, BattlenetScan } from "@/db/schema";
 import { type Faction, type Region, RULESET_BY_REALM_TYPE, type Ruleset, type WowClass } from "@/lib/game";
+import { findRealm, isSupportedVersion, type SupportedGuildVersion } from "@/lib/game-versions";
 import { isForeverCharacter, knownGameVersion } from "@/lib/wow-versions";
-import { apiHost, type BlizzardConfig, configuredRealmRuleset, namespaceFor, oauthHost, realmSlugsFor } from "./config";
+import {
+  apiHost,
+  type BlizzardConfig,
+  configuredRealmRuleset,
+  namespaceFor,
+  oauthHost,
+  realmSlugsFor,
+  versionNamespaces,
+} from "./config";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -9,7 +18,7 @@ export type SnapshotStatus = "ok" | "empty" | "forbidden" | "error";
 
 export interface CharacterListResult {
   status: SnapshotStatus;
-  /** WoW: Forever characters only. */
+  /** Characters of every supported game version, each tagged with its `gameVersion` (absent for WoW: Forever). */
   characters: BattlenetCharacterSnapshot[];
   scan: BattlenetScan;
 }
@@ -153,6 +162,9 @@ const FACTION_BY_RACE_ID: Record<number, Faction> = {
   5: "horde",
   6: "horde",
   8: "horde",
+  // The Burning Crusade
+  10: "horde",
+  11: "alliance",
 };
 
 /** Profile names arrive as a string when a locale is requested, or as a locale map otherwise. */
@@ -233,12 +245,13 @@ function parseAccountEntries(json: unknown): AccountEntry[] {
   return out;
 }
 
-function toSnapshot(e: AccountEntry, region?: Region): BattlenetCharacterSnapshot | null {
+function toSnapshot(e: AccountEntry, region?: Region, version: SupportedGuildVersion = "forever"): BattlenetCharacterSnapshot | null {
   const wowClass = e.classId != null ? CLASS_BY_ID[e.classId] : undefined;
   if (e.level == null || e.level < 1 || !wowClass || !e.faction) return null;
   return {
     id: String(e.id),
     ...(region ? { region } : {}),
+    ...(version !== "forever" ? { gameVersion: version } : {}),
     name: e.name,
     surname: e.surname,
     realmSlug: e.realmSlug,
@@ -262,9 +275,29 @@ interface NamespaceRead extends BattlenetNamespaceScan {
 }
 
 /** One-line, count-only summary of a scan for the server log (no names, IDs or tokens). */
-export function describeScanForLog(scan: BattlenetScan, foreverCount: number): string {
+export function describeScanForLog(scan: BattlenetScan, kept: number | readonly BattlenetCharacterSnapshot[]): string {
   const parts = scan.namespaces.map((n) => `${n.namespace}=${n.httpStatus}:${n.characters}`);
-  return `${parts.join(" ")} forever=${foreverCount} excluded=${scan.excluded.reduce((sum, g) => sum + g.count, 0)}`;
+  const counts =
+    typeof kept === "number"
+      ? `forever=${kept}`
+      : `forever=${kept.filter((c) => !c.gameVersion || c.gameVersion === "forever").length} anniversary=${kept.filter((c) => c.gameVersion === "anniversary").length}`;
+  return `${parts.join(" ")} ${counts} excluded=${scan.excluded.reduce((sum, g) => sum + g.count, 0)}`;
+}
+
+/**
+ * Which supported guild version a character in `namespace` on `realmSlug` belongs to, or null for one Guildbook
+ * doesn't take (Classic Era, retail...). WoW: Forever follows `isForeverCharacter`; TBC Anniversary is its own
+ * namespace, and the character must be on a listed Anniversary realm.
+ */
+export function classifyCharacter(
+  character: { namespace: string; realmSlug: string },
+  config: { forever: { namespace: string; realmSlugs: readonly string[] }; anniversaryNamespace: string },
+): SupportedGuildVersion | null {
+  if (isForeverCharacter(character, config.forever)) return "forever";
+  if (character.namespace === config.anniversaryNamespace && findRealm("anniversary", character.realmSlug.toLowerCase())) {
+    return "anniversary";
+  }
+  return null;
 }
 
 /** Blizzard's guild name slug: lowercase, spaces to hyphens (used only when the response has no `key.href`). */
@@ -368,6 +401,8 @@ export function parseGuildRoster(json: unknown): RosterMember[] {
   return out;
 }
 
+const supportedOrForever = (version: unknown): SupportedGuildVersion => (isSupportedVersion(version) ? version : "forever");
+
 /** Profile API paths take lowercase names; realm slugs are already URL-safe. */
 function characterPath(realmSlug: string, name: string): string {
   return `/profile/wow/character/${encodeURIComponent(realmSlug)}/${encodeURIComponent(name.toLowerCase())}`;
@@ -452,6 +487,10 @@ export class BlizzardClient {
     return url.toString();
   }
 
+  private profileNs(version: SupportedGuildVersion): string {
+    return versionNamespaces(this.config, version).profile;
+  }
+
   private get(region: Region, path: string, token: string, template = this.config.profileNamespace): Promise<Response> {
     return this.fetchImpl(this.apiUrl(region, path, template), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
   }
@@ -488,28 +527,35 @@ export class BlizzardClient {
   }
 
   /**
-   * Reads every scan namespace in every configured region and keeps the WoW: Forever characters (see
-   * `isForeverCharacter`), each tagged with its region. The rest are summarised by game and faction in `scan`, so an
+   * Reads every scan namespace in every configured region and keeps the characters of every supported game version
+   * (see `classifyCharacter`), each tagged with its region and, for TBC Anniversary, `gameVersion`. The rest are summarised by game and faction in `scan`, so an
    * empty result can say what the account does have. Regions fail independently: a 403/404 or an outage in one region
    * (no licence there, say) doesn't hide the other's characters. With no characters at all, "forbidden" needs every
    * namespace refused (a 403 on a Forever namespace alone means Blizzard doesn't serve it yet), and "error" means a
    * region's Forever namespace failed, so its characters may be missing.
    */
   async getAccountCharacters(accessToken: string): Promise<CharacterListResult> {
-    const templates = [...new Set([this.config.profileNamespace, ...this.config.scanNamespaces])];
+    const templates = [
+      ...new Set([this.config.profileNamespace, versionNamespaces(this.config, "anniversary").profile, ...this.config.scanNamespaces]),
+    ];
     const regions = this.config.regions;
     const forever = (region: Region) => ({
       namespace: namespaceFor(this.config.profileNamespace, region),
       realmSlugs: realmSlugsFor(this.config, region),
     });
+    const anniversaryNamespace = (region: Region) => namespaceFor(versionNamespaces(this.config, "anniversary").profile, region);
     const reads = await Promise.all(regions.flatMap((region) => templates.map((t) => this.readNamespace(region, t, accessToken))));
 
     const characters: BattlenetCharacterSnapshot[] = [];
     const excluded = new Map<string, BattlenetExcludedGroup>();
     for (const read of reads) {
       for (const entry of read.entries) {
-        if (isForeverCharacter({ namespace: read.namespace, realmSlug: entry.realmSlug }, forever(read.region))) {
-          const snapshot = toSnapshot(entry, read.region);
+        const kept = classifyCharacter(
+          { namespace: read.namespace, realmSlug: entry.realmSlug },
+          { forever: forever(read.region), anniversaryNamespace: anniversaryNamespace(read.region) },
+        );
+        if (kept) {
+          const snapshot = toSnapshot(entry, read.region, kept);
           if (snapshot) characters.push(snapshot);
           continue;
         }
@@ -530,7 +576,8 @@ export class BlizzardClient {
     };
 
     if (characters.length === 0) {
-      const foreverFailed = reads.some((r) => foreverNamespaces.includes(r.namespace) && r.status === "error");
+      const kept = [...foreverNamespaces, ...regions.map(anniversaryNamespace)];
+      const foreverFailed = reads.some((r) => kept.includes(r.namespace) && r.status === "error");
       const status: SnapshotStatus = reads.every((r) => r.status === "forbidden") ? "forbidden" : foreverFailed ? "error" : "empty";
       return { status, characters, scan };
     }
@@ -538,20 +585,23 @@ export class BlizzardClient {
     // The account list has no guild (or surname); the character profile does. Best effort only.
     await Promise.all(
       characters.slice(0, MAX_PROFILE_ENRICH).map(async (c, i) => {
-        const profile = await this.getCharacterProfile(c.region ?? this.config.region, c.realmSlug, c.name, accessToken).catch(() => null);
+        const profile = await this.getCharacterProfile(c.region ?? this.config.region, c.realmSlug, c.name, accessToken, supportedOrForever(c.gameVersion)).catch(
+          () => null,
+        );
         if (profile && profile.id === c.id) {
           characters[i] = { ...c, guildName: profile.guildName, surname: c.surname ?? profile.surname };
         }
       }),
     );
     // Which ruleset each realm is, so a guild only offers characters from its own ruleset. Best effort only.
-    const realmKey = (c: BattlenetCharacterSnapshot) => `${c.region ?? this.config.region}:${c.realmSlug.toLowerCase()}`;
+    const realmKey = (c: BattlenetCharacterSnapshot) =>
+      `${supportedOrForever(c.gameVersion)}:${c.region ?? this.config.region}:${c.realmSlug.toLowerCase()}`;
     const realms = [...new Set(characters.map(realmKey))].slice(0, MAX_PROFILE_ENRICH);
     const rulesets = new Map<string, Ruleset | null>();
     await Promise.all(
       realms.map(async (key) => {
-        const [region, slug] = key.split(":") as [Region, string];
-        const lookup = await this.getRealmRuleset(region, slug).catch(() => null);
+        const [version, region, slug] = key.split(":") as [SupportedGuildVersion, Region, string];
+        const lookup = await this.getRealmRuleset(region, slug, version).catch(() => null);
         rulesets.set(key, lookup?.status === "ok" ? lookup.ruleset : null);
       }),
     );
@@ -560,17 +610,28 @@ export class BlizzardClient {
   }
 
   /** A public character profile. Null when it doesn't exist, isn't public, or the request fails. */
-  async getCharacterProfile(region: Region, realmSlug: string, name: string, accessToken?: string): Promise<CharacterProfile | null> {
+  async getCharacterProfile(
+    region: Region,
+    realmSlug: string,
+    name: string,
+    accessToken?: string,
+    version: SupportedGuildVersion = "forever",
+  ): Promise<CharacterProfile | null> {
     const token = accessToken ?? (await this.appToken());
-    const res = await this.get(region, characterPath(realmSlug, name), token);
+    const res = await this.get(region, characterPath(realmSlug, name), token, this.profileNs(version));
     if (!res.ok) return null;
     return parseCharacterProfile(await res.json().catch(() => null));
   }
 
   /** Like `getCharacterProfile` with an app token, but tells "gone or private" (404/403) apart from a failed request. */
-  async lookupCharacterProfile(region: Region, realmSlug: string, name: string): Promise<ProfileLookup> {
+  async lookupCharacterProfile(
+    region: Region,
+    realmSlug: string,
+    name: string,
+    version: SupportedGuildVersion = "forever",
+  ): Promise<ProfileLookup> {
     try {
-      const res = await this.get(region, characterPath(realmSlug, name), await this.appToken());
+      const res = await this.get(region, characterPath(realmSlug, name), await this.appToken(), this.profileNs(version));
       if (res.status === 404 || res.status === 403) return { status: "missing" };
       if (!res.ok) return { status: "error" };
       const profile = parseCharacterProfile(await res.json().catch(() => null));
@@ -581,18 +642,26 @@ export class BlizzardClient {
   }
 
   /**
-   * The ruleset of a realm: `BATTLENET_REALM_RULESETS` first, then the Game Data realm's type
-   * (`/data/wow/realm/{realmSlug}` in the region's dynamic namespace). Cached per region for the life of the client.
+   * The ruleset of a realm: `BATTLENET_REALM_RULESETS` (Forever) or the version's realm list first, then the Game
+   * Data realm's type (`/data/wow/realm/{realmSlug}` in the version's dynamic namespace). Cached per
+   * version, region and realm for the life of the client.
    */
-  async getRealmRuleset(region: Region, realmSlug: string): Promise<RealmRulesetLookup> {
+  async getRealmRuleset(region: Region, realmSlug: string, version: SupportedGuildVersion = "forever"): Promise<RealmRulesetLookup> {
     const slug = realmSlug.toLowerCase();
-    const configured = configuredRealmRuleset(this.config, region, slug);
+    const configured = version === "forever" ? configuredRealmRuleset(this.config, region, slug) : undefined;
     if (configured) return { status: "ok", ruleset: configured, realmType: null };
-    const cacheKey = `${region}:${slug}`;
+    const listed = version === "forever" ? null : findRealm(version, slug);
+    if (listed && listed.region === region) return { status: "ok", ruleset: listed.ruleset, realmType: null };
+    const cacheKey = `${version}:${region}:${slug}`;
     const cached = this.realmRulesets.get(cacheKey);
     if (cached) return { status: "ok", ...cached };
     try {
-      const res = await this.get(region, `/data/wow/realm/${encodeURIComponent(slug)}`, await this.appToken(), this.config.dynamicNamespace);
+      const res = await this.get(
+        region,
+        `/data/wow/realm/${encodeURIComponent(slug)}`,
+        await this.appToken(),
+        versionNamespaces(this.config, version).dynamic,
+      );
       if (res.status === 404) {
         const unknown = { ruleset: null, realmType: null };
         this.realmRulesets.set(cacheKey, unknown);
@@ -608,12 +677,18 @@ export class BlizzardClient {
   }
 
   /** The in-game guild roster with ranks. Blizzard answers 403 for some existing Classic guilds, so that is its own status. */
-  async lookupGuildRoster(region: Region, realmSlug: string, nameSlug: string): Promise<RosterLookup> {
+  async lookupGuildRoster(
+    region: Region,
+    realmSlug: string,
+    nameSlug: string,
+    version: SupportedGuildVersion = "forever",
+  ): Promise<RosterLookup> {
     try {
       const res = await this.get(
         region,
         `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}/roster`,
         await this.appToken(),
+        this.profileNs(version),
       );
       if (res.status === 404) return { status: "not_found" };
       if (res.status === 401 || res.status === 403) return { status: "forbidden" };
@@ -627,9 +702,14 @@ export class BlizzardClient {
   }
 
   /** A guild's profile, for its name and tabard (`/data/wow/guild/{realmSlug}/{nameSlug}`, profile namespace, app token). */
-  async lookupGuild(region: Region, realmSlug: string, nameSlug: string): Promise<GuildLookup> {
+  async lookupGuild(region: Region, realmSlug: string, nameSlug: string, version: SupportedGuildVersion = "forever"): Promise<GuildLookup> {
     try {
-      const res = await this.get(region, `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}`, await this.appToken());
+      const res = await this.get(
+        region,
+        `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(nameSlug)}`,
+        await this.appToken(),
+        this.profileNs(version),
+      );
       if (res.status === 404) return { status: "not_found" };
       if (res.status === 401 || res.status === 403) return { status: "forbidden" };
       if (!res.ok) return { status: "error" };
@@ -642,11 +722,12 @@ export class BlizzardClient {
     }
   }
 
-  /** An item's name, quality, level and icon from the Game Data API, in the default region's static namespace. */
-  async getItem(itemId: number): Promise<ItemLookup> {
+  /** An item's name, quality, level and icon from the Game Data API, in the default region's static namespace for `version`. */
+  async getItem(itemId: number, version: SupportedGuildVersion = "forever"): Promise<ItemLookup> {
     try {
       const token = await this.appToken();
-      const url = (path: string) => this.apiUrl(this.config.region, path, this.config.staticNamespace);
+      const staticNs = versionNamespaces(this.config, version).static;
+      const url = (path: string) => this.apiUrl(this.config.region, path, staticNs);
       const init = { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" as const };
       const res = await this.fetchImpl(url(`/data/wow/item/${itemId}`), init);
       if (res.status === 404) return { status: "missing" };
@@ -662,12 +743,18 @@ export class BlizzardClient {
   }
 
   /** The in-game guild roster: one request covers every member's level. Null if the guild isn't found. */
-  async getGuildRoster(region: Region, realmSlug: string, guildSlug: string): Promise<RosterMember[] | null> {
+  async getGuildRoster(
+    region: Region,
+    realmSlug: string,
+    guildSlug: string,
+    version: SupportedGuildVersion = "forever",
+  ): Promise<RosterMember[] | null> {
     const token = await this.appToken();
     const res = await this.get(
       region,
       `/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(guildSlug)}/roster`,
       token,
+      this.profileNs(version),
     );
     if (!res.ok) return null;
     return parseGuildRoster(await res.json().catch(() => null));

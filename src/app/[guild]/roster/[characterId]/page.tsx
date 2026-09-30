@@ -5,7 +5,7 @@ import { ClassIcon } from "@/components/class-icon";
 import { LootTable } from "@/components/loot-table";
 import { RankInsignia } from "@/components/rank-insignia";
 import { RegionTag } from "@/components/region";
-import { CharacterLink, ClassName, FactionBadge, PageHeader, Panel, RoleBadge, Tag, VerifiedMark } from "@/components/ui";
+import { CharacterLink, ClassName, FactionBadge, GuildMemberTag, PageHeader, Panel, RoleBadge, Tag, VerifiedMark } from "@/components/ui";
 import { db } from "@/db";
 import { TIER_LABELS } from "@/lib/authz/tiers";
 import { CLASS_INFO, fullName, PROFESSION_LABELS } from "@/lib/game";
@@ -66,6 +66,7 @@ export default async function CharacterPage({ params }: PageProps<"/[guild]/rost
               Verified
             </Tag>
           )}
+          {guild.verifiedAt && c.verified && c.inGuildConfirmedAt && <GuildMemberTag guildName={guild.name} />}
           {c.verified && c.region && <RegionTag region={c.region} className="self-center" />}
         </div>
       </PageHeader>

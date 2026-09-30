@@ -36,7 +36,7 @@ export async function refreshBattlenetAction(slug: string, _prev: Prev): Promise
 
 export async function importBattlenetCharacterAction(slug: string, _prev: Prev, fd: FormData): Promise<ActionResult> {
   return runAction(slug, async ({ viewer }) => {
-    const { character, created } = await importBattlenetCharacter(db, viewer.actor, Object.fromEntries(fd.entries()));
+    const { character, created } = await importBattlenetCharacter(db, viewer.actor, Object.fromEntries(fd.entries()), undefined, getBlizzardClient());
     refresh();
     return `${fullName(character.name, character.surname)} ${created ? "imported from Battle.net" : "verified via Battle.net"}.`;
   });

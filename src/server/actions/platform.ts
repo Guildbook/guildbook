@@ -10,6 +10,8 @@ import { getRequestHost, guildOrigin } from "@/server/hosts";
 import { createRateLimiter } from "@/server/rate-limit";
 import { FACTIONS, REGIONS, RULESETS } from "@/lib/game";
 import { findRealm, SUPPORTED_GUILD_VERSIONS } from "@/lib/game-versions";
+import { getBlizzardClient } from "@/server/blizzard";
+import { recordFounderStanding } from "@/server/services/guild-verification";
 import { checkSlugAvailability, createGuildForUser, type SlugAvailability } from "@/server/services/platform";
 
 const createLimiter = createRateLimiter({ limit: 5, windowMs: 10 * 60_000 });
@@ -47,6 +49,9 @@ export async function createGuildAction(_prev: ActionResult | null, fd: FormData
   try {
     const created = await createGuildForUser(db, user.id, Object.fromEntries(fd.entries()));
     slug = created.guild.slug;
+    await recordFounderStanding(db, created.guild.id, user.id, getBlizzardClient()).catch((err) => {
+      console.warn(`[guild.create] founder standing check failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    });
   } catch (err) {
     return actionError(err);
   }

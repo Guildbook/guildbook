@@ -188,6 +188,11 @@ export interface GuildSetupState {
   ranksConfirmedAt?: string;
   /** Lets people apply to a draft guild through a private link (`/apply?invite=`); public applications open on publish. */
   inviteCode?: string;
+  /**
+   * Set at creation when the founder's linked character is in the in-game guild but isn't its Guild Master, so setup
+   * explains that the Guild Master verifies. Cleared once the guild is verified.
+   */
+  founderNotGm?: { characterName: string; rank: number | null; checkedAt: string };
 }
 
 export interface BattlenetCharacterSnapshot {
@@ -404,6 +409,11 @@ export const characters = pgTable(
     realmName: text("realm_name"),
     /** Last successful Battle.net sync (lastSyncedAt). */
     syncedAt: timestamp("synced_at", { withTimezone: true }),
+    /**
+     * When Battle.net last showed this character in the guild's in-game guild (same name, faction and, for versions
+     * with realms, realm): a verified member. Null when it wasn't, or hasn't been checked.
+     */
+    inGuildConfirmedAt: timestamp("in_guild_confirmed_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

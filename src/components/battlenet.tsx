@@ -3,6 +3,8 @@ import { StatusToast } from "@/components/status-toast";
 import { emptySnapshotMessage } from "@/lib/battlenet-empty-state";
 import { formatDateTime } from "@/lib/format";
 import type { Faction, Region } from "@/lib/game";
+import type { GuildVersion } from "@/lib/game-versions";
+import { snapshotVersion } from "@/server/blizzard/filter";
 import { refreshBattlenetAction, unlinkBattlenetAction } from "@/server/actions/battlenet";
 import type { BattlenetLink } from "@/server/services/battlenet";
 
@@ -99,12 +101,23 @@ export function BattlenetAccount({
 }
 
 /** Why a linked account offers no characters, and what it has instead. */
-export function EmptySnapshotNote({ link, faction, region }: { link: BattlenetLink; faction: Faction | null; region?: Region | null }) {
+export function EmptySnapshotNote({
+  link,
+  faction,
+  region,
+  version = "forever",
+}: {
+  link: BattlenetLink;
+  faction: Faction | null;
+  region?: Region | null;
+  version?: GuildVersion;
+}) {
   const text = emptySnapshotMessage({
     battletag: link.battletag,
     status: link.snapshotStatus,
     scan: link.scan,
-    foreverCharacters: link.characters,
+    foreverCharacters: link.characters.filter((c) => snapshotVersion(c) === version),
+    version,
     guildFaction: faction,
     guildRegion: region,
     now: new Date(),

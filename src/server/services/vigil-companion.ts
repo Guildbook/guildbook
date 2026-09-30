@@ -120,7 +120,10 @@ export async function exchangePairingCode(db: Db, raw: unknown) {
         tokenHint: token.slice(-4),
       })
       .returning({ id: vigilCompanionDevices.id, name: vigilCompanionDevices.name });
-    const [guild] = await tx.select({ slug: guilds.slug, name: guilds.name }).from(guilds).where(eq(guilds.id, pairing.guildId));
+    const [guild] = await tx
+      .select({ slug: guilds.slug, name: guilds.name, gameVersion: guilds.gameVersion })
+      .from(guilds)
+      .where(eq(guilds.id, pairing.guildId));
     return { token, device: device!, guild: guild!, guildId: pairing.guildId };
   });
 }

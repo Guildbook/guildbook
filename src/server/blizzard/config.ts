@@ -1,4 +1,5 @@
 import { REGIONS, type Region, RULESETS, type Ruleset } from "@/lib/game";
+import type { SupportedGuildVersion } from "@/lib/game-versions";
 
 export { REGIONS, type Region };
 
@@ -53,10 +54,34 @@ export interface BlizzardConfig {
   clientSecret: string | null;
   /** Serve fixture characters instead of calling Blizzard (dev and e2e). */
   mock: boolean;
+  /**
+   * Namespace templates per supported game version (read through `versionNamespaces`, which takes Forever's from
+   * `profileNamespace`, `dynamicNamespace` and `staticNamespace`). `anniversary` reads `profile-classicann-{region}` and its `dynamic-`/`static-` twins
+   * (BATTLENET_ANNIVERSARY_{PROFILE,DYNAMIC,STATIC}_NAMESPACE override them).
+   */
+  versions: Record<SupportedGuildVersion, VersionNamespaces>;
+}
+
+export interface VersionNamespaces {
+  profile: string;
+  dynamic: string;
+  static: string;
+}
+
+/** The namespace templates Blizzard serves a version's characters, realms and items from. */
+export function versionNamespaces(
+  config: Pick<BlizzardConfig, "versions" | "profileNamespace" | "dynamicNamespace" | "staticNamespace">,
+  version: SupportedGuildVersion,
+): VersionNamespaces {
+  if (version === "forever") {
+    return { profile: config.profileNamespace, dynamic: config.dynamicNamespace, static: config.staticNamespace };
+  }
+  return config.versions[version];
 }
 
 const DEFAULT_NAMESPACE = "profile-classic1x-{region}";
 const DEFAULT_STATIC_NAMESPACE = "static-classic1x-{region}";
+const ANNIVERSARY_PROFILE_NAMESPACE = "profile-classicann-{region}";
 const DEFAULT_SCAN_NAMESPACES = [
   "profile-classic1x-{region}",
   "profile-classicann-{region}",
@@ -144,16 +169,27 @@ export function blizzardConfigFromEnv(env: Record<string, string | undefined> = 
     throw new Error("BATTLENET_MOCK must never be enabled in production.");
   }
   const profileNamespace = namespaceTemplate(env.BATTLENET_PROFILE_NAMESPACE?.trim() || DEFAULT_NAMESPACE);
+  const staticNamespace = namespaceTemplate(env.BATTLENET_STATIC_NAMESPACE?.trim() || DEFAULT_STATIC_NAMESPACE);
+  const dynamicNamespace = namespaceTemplate(env.BATTLENET_DYNAMIC_NAMESPACE?.trim() || profileNamespace.replace(/^profile-/, "dynamic-"));
+  const annProfile = namespaceTemplate(env.BATTLENET_ANNIVERSARY_PROFILE_NAMESPACE?.trim() || ANNIVERSARY_PROFILE_NAMESPACE);
+  const anniversary: VersionNamespaces = {
+    profile: annProfile,
+    dynamic: namespaceTemplate(env.BATTLENET_ANNIVERSARY_DYNAMIC_NAMESPACE?.trim() || annProfile.replace(/^profile-/, "dynamic-")),
+    static: namespaceTemplate(env.BATTLENET_ANNIVERSARY_STATIC_NAMESPACE?.trim() || annProfile.replace(/^profile-/, "static-")),
+  };
   const scan = list(env.BATTLENET_SCAN_NAMESPACES);
   return {
     region,
     regions: regions.length > 0 ? [...new Set(regions)] : [...REGIONS],
     profileNamespace,
-    scanNamespaces: [...new Set([profileNamespace, ...(scan.length > 0 ? scan : DEFAULT_SCAN_NAMESPACES).map(namespaceTemplate)])],
-    staticNamespace: namespaceTemplate(env.BATTLENET_STATIC_NAMESPACE?.trim() || DEFAULT_STATIC_NAMESPACE),
+    scanNamespaces: [
+      ...new Set([profileNamespace, anniversary.profile, ...(scan.length > 0 ? scan : DEFAULT_SCAN_NAMESPACES).map(namespaceTemplate)]),
+    ],
+    staticNamespace,
     locale: env.BATTLENET_LOCALE?.trim() || "en_US",
     realmSlugs: realmList(env.BATTLENET_REALMS),
-    dynamicNamespace: namespaceTemplate(env.BATTLENET_DYNAMIC_NAMESPACE?.trim() || profileNamespace.replace(/^profile-/, "dynamic-")),
+    dynamicNamespace,
+    versions: { forever: { profile: profileNamespace, dynamic: dynamicNamespace, static: staticNamespace }, anniversary },
     realmRulesets: realmRulesetMap(env.BATTLENET_REALM_RULESETS),
     guildRealmSlug: env.BATTLENET_GUILD_REALM?.trim().toLowerCase() || null,
     guildSlug: env.BATTLENET_GUILD_SLUG?.trim().toLowerCase() || null,

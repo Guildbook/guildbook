@@ -76,13 +76,15 @@ export interface Realm {
 }
 
 /**
- * TBC Anniversary realms. Only the ones we're confident of: Blizzard's realm index
- * (`/data/wow/realm/index?namespace=dynamic-classicann-{us,eu}`) hasn't been checked against this list yet. The
- * Anniversary Hardcore realms are left out until their namespace is confirmed. Add realms here as they're confirmed.
+ * TBC Anniversary realms (September 2026): Blizzard's Anniversary realm announcements and the Warcraft Wiki realm
+ * list. Maladath is the Oceanic realm, served from the US API region (`profile-classicann-us`). The Anniversary
+ * Hardcore realms (Doomhowl, Soulseeker) stayed on Classic Era (`classic1x`) rather than moving to TBC, so they
+ * aren't listed. Check against `/data/wow/realm/index?namespace=dynamic-classicann-{us,eu}` when adding realms.
  */
 export const ANNIVERSARY_REALMS: readonly Realm[] = [
   { slug: "dreamscythe", name: "Dreamscythe", region: "us", ruleset: "normal" },
   { slug: "nightslayer", name: "Nightslayer", region: "us", ruleset: "pvp" },
+  { slug: "maladath", name: "Maladath", region: "us", ruleset: "pvp" },
   { slug: "thunderstrike", name: "Thunderstrike", region: "eu", ruleset: "normal" },
   { slug: "spineshatter", name: "Spineshatter", region: "eu", ruleset: "pvp" },
 ];

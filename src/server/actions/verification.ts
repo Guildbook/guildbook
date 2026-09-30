@@ -6,7 +6,13 @@ import { db } from "@/db";
 import { type ActionResult, runAction } from "@/server/action";
 import { getBlizzardClient } from "@/server/blizzard";
 import { getRequestHost, guildOrigin } from "@/server/hosts";
-import { claimGuildName, claimGuildSlug, dismissAdminNotice, verifyGuild } from "@/server/services/guild-verification";
+import {
+  claimGuildName,
+  claimGuildSlug,
+  dismissAdminNotice,
+  promoteVerifiedGuildMaster,
+  verifyGuild,
+} from "@/server/services/guild-verification";
 
 type Prev = ActionResult | null;
 
@@ -45,5 +51,13 @@ export async function dismissAdminNoticeAction(slug: string, _prev: Prev): Promi
   return runAction(slug, async ({ viewer }) => {
     await dismissAdminNotice(db, viewer.actor);
     refresh();
+  });
+}
+
+export async function promoteGuildMasterAction(slug: string, _prev: Prev): Promise<ActionResult> {
+  return runAction(slug, async ({ viewer }) => {
+    const { characterName, rankName } = await promoteVerifiedGuildMaster(db, viewer.actor);
+    refresh();
+    return `${characterName ?? "The Guild Master"} now holds the ${rankName} rank.`;
   });
 }

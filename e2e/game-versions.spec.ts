@@ -57,7 +57,7 @@ test.describe("Game versions", () => {
     await page.getByRole("button", { name: "Create guild" }).click();
 
     await page.waitForURL(`${site}/admin/setup`);
-    await expect(page.getByTestId("setup-verify-coming-soon")).toBeVisible();
+    await expect(page.getByTestId("setup-verify-coming-soon")).toHaveCount(0);
 
     // Publish: keep the ranks, save the tabard, write a charter.
     await page.getByRole("button", { name: "Keep these ranks" }).click();
@@ -65,7 +65,8 @@ test.describe("Game versions", () => {
     await page.goto(`${site}/admin/guild#tabard`);
     await page.getByRole("button", { name: "Save tabard and theme" }).click();
     await expect(page.getByText("Tabard and theme saved").first()).toBeVisible();
-    await expect(page.getByTestId("verify-coming-soon")).toContainText("coming soon");
+    await expect(page.getByTestId("verify-guild")).toContainText("One of their TBC Anniversary characters must be Guild Master (rank 0)");
+    await expect(page.getByTestId("verify-guild")).toContainText("Horde, on Dreamscythe (US)");
     await page.goto(`${site}/admin/content/charter`);
     await page.getByLabel("Body (Markdown)").fill("We raid Karazhan on weekends.");
     await page.getByRole("button", { name: "Save page" }).click();

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { battlenetEnabled, getBlizzardClient } from "@/server/blizzard";
 import { OAUTH_COOKIE, OAUTH_COOKIE_PATH, redirectUriFor, withStatus } from "@/server/blizzard/oauth";
-import { getGuild, getViewer } from "@/server/context";
+import { getGuild, getSessionUser, getViewer } from "@/server/context";
 import { guildOrigin, hostFromRequest, validateDestination } from "@/server/hosts";
 
 /**
@@ -44,7 +44,9 @@ export async function GET(request: NextRequest) {
   let target: string;
   if (client.config.mock) {
     const callback = new URL(redirectUri);
-    callback.searchParams.set("code", `mock-${viewer.user.id}`);
+    // The Discord ID lets e2e runs pick which fixture characters an account holds (see `mock.ts`).
+    const discordId = (await getSessionUser())?.discordId;
+    callback.searchParams.set("code", `mock-${viewer.user.id}${discordId ? `.${discordId}` : ""}`);
     callback.searchParams.set("state", state);
     target = callback.toString();
   } else {
