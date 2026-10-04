@@ -10,6 +10,7 @@ import { formatDuration, scoreTone } from "@/lib/vigil/format";
 import { getModel } from "@/lib/vigil/rotations";
 import { VISIBILITY_LABELS } from "@/lib/vigil/visibility";
 import { requirePage } from "@/server/context";
+import { getRequestHost } from "@/server/hosts";
 import {
   getVigilPreferences,
   listOwnVigilReports,
@@ -66,10 +67,11 @@ function ReportRow({
 export default async function VigilPage({ params }: PageProps<"/[guild]/vigil">) {
   const { guild: slug } = await params;
   const { guild, actor } = await requirePage(slug, "vigil.use", guildHref(slug, "/vigil"));
-  const [mine, shared, prefs] = await Promise.all([
+  const [mine, shared, prefs, current] = await Promise.all([
     listOwnVigilReports(db, actor),
     listSharedVigilReports(db, actor),
     getVigilPreferences(db, actor),
+    getRequestHost(),
   ]);
 
   return (
@@ -90,9 +92,9 @@ export default async function VigilPage({ params }: PageProps<"/[guild]/vigil">)
           <Link href={guildHref(slug, "/vigil/companion")} className="link">
             Connect Vigil companion
           </Link>
-          <Link href={guildHref(slug, "/addons")} className="link">
-            Get the Vigil addon
-          </Link>
+          <a href={`${current.apexOrigin}/vigil`} className="link">
+            Download Vigil
+          </a>
         </span>
       </div>
 

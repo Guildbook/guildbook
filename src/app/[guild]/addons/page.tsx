@@ -8,6 +8,7 @@ import { can } from "@/lib/authz/policy";
 import { guildWording } from "@/lib/guild-wording";
 import { guildHref } from "@/lib/paths";
 import { getGuild, getViewer } from "@/server/context";
+import { getRequestHost } from "@/server/hosts";
 import { listAddons } from "@/server/services/content";
 
 export const metadata: Metadata = { title: "Addons" };
@@ -15,7 +16,7 @@ export const metadata: Metadata = { title: "Addons" };
 export default async function AddonsPage({ params }: PageProps<"/[guild]/addons">) {
   const { guild: slug } = await params;
   const guild = await getGuild(slug);
-  const [addonList, viewer] = await Promise.all([listAddons(db, guild.id), getViewer(guild.id)]);
+  const [addonList, viewer, current] = await Promise.all([listAddons(db, guild.id), getViewer(guild.id), getRequestHost()]);
   const vigilOpen = can(viewer.actor, "vigil.use");
   const wording = guildWording(guild);
 
@@ -42,9 +43,14 @@ export default async function AddonsPage({ params }: PageProps<"/[guild]/addons"
                   </div>
                 )}
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                  {a.slug === "vigil" && !a.downloadUrl && (
+                    <a href={`${current.apexOrigin}/vigil`} className="btn btn-primary btn-sm">
+                      Download Vigil
+                    </a>
+                  )}
                   {a.slug === "vigil" && vigilOpen && (
-                    <Link href={guildHref(slug, "/vigil")} className="btn btn-primary btn-sm">
-                      Open Vigil
+                    <Link href={guildHref(slug, "/vigil")} className="btn btn-ghost btn-sm">
+                      Your reports
                     </Link>
                   )}
                   {a.version && <span className="text-muted">v{a.version}</span>}

@@ -61,7 +61,8 @@ test("upload a combat log, keep one fight, open the report and control who sees 
 
 test("Vigil is linked from the addons page and My Characters", async ({ page }) => {
   await signIn(page, "seed-tor", "Tor", "/addons");
-  await page.getByRole("main").getByRole("link", { name: "Open Vigil" }).click();
+  await expect(page.getByRole("main").getByRole("link", { name: "Download Vigil" })).toHaveAttribute("href", /\/vigil$/);
+  await page.getByRole("main").getByRole("link", { name: "Your reports" }).click();
   await expect(page).toHaveURL(/\/vigil$/);
   await expect(page.getByRole("heading", { level: 1, name: "Vigil" })).toBeVisible();
   await page.goto("/members/characters");
