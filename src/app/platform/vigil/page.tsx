@@ -149,14 +149,14 @@ function NoRelease({ ok, hero = false }: { ok: boolean; hero?: boolean }) {
 const STEPS: { title: string; body: ReactNode }[] = [
   {
     title: "Install Vigil",
-    body: "Download it for Windows, macOS or Linux and open it. It finds your World of Warcraft Logs folder on its own.",
+    body: "Download it for Windows, macOS or Linux and open it. It finds your World of Warcraft folder on its own and offers to install the Vigil addon in one click.",
   },
   {
     title: "Turn on combat logging",
     body: (
       <>
-        In game, enable Advanced Combat Logging under System, Network, then type <code className="text-gold">/combatlog</code> each time you
-        log in.
+        The Vigil addon does this for you, turning on combat logging and Advanced Combat Logging every time you log in. Without it, enable
+        Advanced Combat Logging under System, Network, then type <code className="text-gold">/combatlog</code> each time you log in.
       </>
     ),
   },
@@ -251,7 +251,7 @@ function Faq({ release, platform }: { release: CompanionRelease | null; platform
       answer: (
         <p>
           Vigil only reads the combat log file the game writes to your Logs folder. It doesn&apos;t inject anything, automate anything or
-          talk to the game. The optional Vigil addon, which you can install from the app&apos;s settings, is an ordinary addon.
+          talk to the game. The optional Vigil addon, which the app offers to install when it finds your game, is an ordinary addon.
         </p>
       ),
     },
